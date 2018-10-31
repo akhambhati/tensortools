@@ -22,8 +22,8 @@ def _check_cpd_inputs(X, rank):
     ------
     ValueError: If inputs are not suited for CP decomposition.
     """
-    if X.ndim < 3:
-        raise ValueError("Array with X.ndim > 2 expected.")
+    if X.ndim < 2:
+        raise ValueError("Array with X.ndim > 1 expected.")
     if rank <= 0 or not isinstance(rank, int):
         raise ValueError("Rank is invalid.")
 
