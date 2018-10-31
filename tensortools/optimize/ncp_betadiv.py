@@ -32,9 +32,8 @@ def _beta_div(X, U, beta):
 
     else:
         return np.sum(1/(beta*(beta-1)) * 
-                (X**beta + (beta-1)*U**beta - beta*(X*U)**(beta-1))
+                (X**beta + (beta-1)*U**beta - beta*X*U**(beta-1))
         )
-
 
 def ncp_betadiv(X, rank, beta, random_state=None, init='rand', **options):
     """
