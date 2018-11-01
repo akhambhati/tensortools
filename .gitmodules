@@ -1,3 +1,0 @@
-[submodule "tensortools/optimize/nonnegfac"]
-	path = tensortools/optimize/nonnegfac
-	url = https://github.com/kimjingu/nonnegfac-python.git
