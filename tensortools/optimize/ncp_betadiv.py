@@ -1,7 +1,7 @@
 """
-CP decomposition by classic alternating least squares (ALS).
+CP decomposition based on costs defined by beta-divergence family.
 
-Author: N. Benjamin Erichson <erichson@uw.edu>
+Author: Ankit N. Khambhati <akhambhati@gmail.com>
 """
 
 import numpy as np
