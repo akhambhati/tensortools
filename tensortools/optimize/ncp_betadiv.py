@@ -1,18 +1,25 @@
 """
-CP decomposition based on costs defined by beta-divergence family.
+CP decomposition based on costs defined by beta-divergence family using
+a maximization-minization algorithm using conditionally-weighted
+multiplicative updates.
+
+The beta-divergence represents a family of cost functions that lay along a
+continuum of three well-known cost functions that are defined by specific
+values of beta:
+    - beta = 0 : Itakura-Saito divergence (underlying mult. Gamma noise)
+    - beta = 1 : Kullback-Leibler divergence (underlying mult. Poisson noise)
+    - beta = 2 : Euclidean distance (underlying add. Gaussian noise)
+
 
 Author: Ankit N. Khambhati <akhambhati@gmail.com>
+Last Updated: 2018/11/02
 """
 
 import numpy as np
-import scipy as sci
-from scipy import linalg
 
-from tensortools.operations import unfold, khatri_rao
-from tensortools.tensors import KTensor
+from tensortools.operations import khatri_rao, unfold
 from tensortools.optimize import FitResult, optim_utils
 
-from .._hals_update import _hals_update
 
 def _beta_div(X, U, beta):
     """Define the different divergences"""
@@ -21,19 +28,29 @@ def _beta_div(X, U, beta):
         return np.linalg.norm(X - U)
 
     elif beta == 1:
-        return np.sum(
-            X * np.log(X/U) - X + U
-        )
+        return np.sum(X * np.log(X / U) - X + U)
 
     elif beta == 0:
-        return np.sum(
-            X/U - np.log(X/U) - 1
-        )
+        return np.sum(X / U - np.log(X / U) - 1)
 
     else:
-        return np.sum(1/(beta*(beta-1)) * 
-                (X**beta + (beta-1)*U**beta - beta*X*U**(beta-1))
-        )
+        return np.sum(1 / (beta * (beta - 1)) *
+                      (X**beta + (beta - 1) * U**beta - beta * X * U**
+                       (beta - 1)))
+
+
+def _mm_gamma_func(beta):
+    """Define the gamma function for MM-algorithm based on beta value"""
+
+    if (beta < 1):
+        return 1 / (2 - beta)
+
+    if (beta >= 1) & (beta <= 2):
+        return 1
+
+    if (beta > 2):
+        return 1 / (beta - 1)
+
 
 def ncp_betadiv(X, rank, beta, random_state=None, init='rand', **options):
     """
@@ -91,11 +108,6 @@ def ncp_betadiv(X, rank, beta, random_state=None, init='rand', **options):
         in form of a KTensor, ``result.factors``.
 
 
-    Notes
-    -----
-    This implemenation is using the Hierarcial Alternating Least Squares Method.
-
-
     References
     ----------
     Févotte, Cédric, and Jérôme Idier. "Algorithms for nonnegative matrix
@@ -119,8 +131,6 @@ def ncp_betadiv(X, rank, beta, random_state=None, init='rand', **options):
 
     while result.still_optimizing:
 
-        violation = 0.0
-
         for n in range(X.ndim):
 
             # Select all components, but U_n
@@ -131,18 +141,11 @@ def ncp_betadiv(X, rank, beta, random_state=None, init='rand', **options):
             Xn = unfold(X, n)
 
             # ii) Update component U_n
-            if beta == 2:
-                grams = sci.multiply.reduce([arr.T.dot(arr) for arr in components])
-                p = Xn.dot(kr)
+            p = U[n].dot(kr.T)
 
-                violation += _hals_update(U[n], grams, p)
-
-            else:
-                p = U[n].dot(kr.T)
-
-                num = (p**(beta-2) * Xn).dot(kr)
-                den = (p**(beta-1)).dot(kr)
-                U[n] *= num / den
+            num = (p**(beta - 2) * Xn).dot(kr)
+            den = (p**(beta - 1)).dot(kr)
+            U[n] *= (num / den)**_mm_gamma_func(beta)
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # Update the optimization result, checks for convergence.
