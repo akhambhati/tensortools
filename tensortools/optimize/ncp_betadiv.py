@@ -3,53 +3,14 @@ CP decomposition based on costs defined by beta-divergence family using
 a maximization-minization algorithm using conditionally-weighted
 multiplicative updates.
 
-The beta-divergence represents a family of cost functions that lay along a
-continuum of three well-known cost functions that are defined by specific
-values of beta:
-    - beta = 0 : Itakura-Saito divergence (underlying mult. Gamma noise)
-    - beta = 1 : Kullback-Leibler divergence (underlying mult. Poisson noise)
-    - beta = 2 : Euclidean distance (underlying add. Gaussian noise)
-
-
 Author: Ankit N. Khambhati <akhambhati@gmail.com>
-Last Updated: 2018/11/02
+Last Updated: 2018/11/03
 """
-
-import numpy as np
 
 from tensortools.operations import khatri_rao, unfold
 from tensortools.optimize import FitResult, optim_utils
 
-
-def _beta_div(X, U, beta):
-    """Define the different divergences"""
-
-    if beta == 2:
-        return np.linalg.norm(X - U)
-
-    elif beta == 1:
-        return np.sum(X * np.log(X / U) - X + U)
-
-    elif beta == 0:
-        return np.sum(X / U - np.log(X / U) - 1)
-
-    else:
-        return np.sum(1 / (beta * (beta - 1)) *
-                      (X**beta + (beta - 1) * U**beta - beta * X * U**
-                       (beta - 1)))
-
-
-def _mm_gamma_func(beta):
-    """Define the gamma function for MM-algorithm based on beta value"""
-
-    if (beta < 1):
-        return 1 / (2 - beta)
-
-    if (beta >= 1) & (beta <= 2):
-        return 1
-
-    if (beta > 2):
-        return 1 / (beta - 1)
+from ._betadiv import calc_cost, calc_div_grad
 
 
 def ncp_betadiv(X, rank, beta, random_state=None, init='rand', **options):
@@ -60,7 +21,7 @@ def ncp_betadiv(X, rank, beta, random_state=None, init='rand', **options):
     Parameters
     ----------
     X : (I_1, ..., I_N) array_like
-        A real array with nonnegative entries and ``X.ndim >= 3``.
+        A real array with nonnegative entries and ``X.ndim >= 2``.
 
     rank : integer
         The `rank` sets the number of components to be computed.
@@ -143,15 +104,15 @@ def ncp_betadiv(X, rank, beta, random_state=None, init='rand', **options):
             # ii) Update component U_n
             p = U[n].dot(kr.T)
 
-            num = (p**(beta - 2) * Xn).dot(kr)
-            den = (p**(beta - 1)).dot(kr)
-            U[n] *= (num / den)**_mm_gamma_func(beta)
+            neg, pos = calc_div_grad(Xn, p, kr, beta, alg='maxmin')
+
+            U[n] *= (neg / pos)
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # Update the optimization result, checks for convergence.
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # Compute objective function
-        result.update(_beta_div(X, U.full(), beta))
+        result.update(calc_cost(X, U.full(), beta))
 
     # end optimization loop, return result.
     return result.finalize()
