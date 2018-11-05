@@ -65,7 +65,7 @@ def _mm_gamma_func(beta):
         return 1 / (beta - 1)
 
 
-def calc_div_grad(x, x_h, kr, beta, alg='maxmin'):
+def calc_div_grad(x, x_h, kr, beta, alg='heuristic'):
     """
     Compute the positive and negative gradient components for the
     beta divergence.
@@ -110,4 +110,70 @@ def calc_div_grad(x, x_h, kr, beta, alg='maxmin'):
     neg = (x_h**(beta - 2) * x).dot(kr)
     pos = (x_h**(beta - 1)).dot(kr)
 
-    return neg**pow_fac, pos**pow_fac
+    return neg, pos
+
+
+def calc_time_grad(A, X_t0, X_t1, beta, alg='heuristic'):
+    """
+    Compute the positive and negative gradient components for updating
+    an X_t. Used as a constraint condition in conjunction with the more general
+    divergence gradient.
+
+    X_t = A * X_t_minus_1
+
+    Parameters
+    ----------
+        A : np.ndarray shape: [k, k]
+            State-transition matrix (can be of arbitrary lags).
+
+        X_t0 : np.ndarray shape: [k, N]
+            Stacked time observation matrix (can be of arbitrary lags).
+            Represents X_t_minus_1.
+
+        X_t1 : np.ndarray shape: [k, N]
+            Stacked time observation matrix (can be of arbitrary lags).
+            Represents X_t.
+
+        beta : float
+            Parameter that defines the specific cost function.
+
+        alg: ['maxmin', 'heuristic']
+            The algorithm used to weight the gradients depending on desired
+            update speed.
+            - 'maxmin' - maximization-minimization algorithm
+            - 'heuristic' - heuristic algorithm
+
+    Return
+    ------
+        neg: array_like
+            Negative gradient component
+        pos: array_like
+            Positive gradient component
+    """
+
+    alg = alg.lower()
+    if alg == 'maxmin':
+        pow_fac = _mm_gamma_func(beta)
+    elif alg == 'heuristic':
+        pow_fac = 1
+    else:
+        raise Exception('Specified algorithm not supported.')
+
+    # Compute the forward gradients (t --> t+1)
+    neg_forw = A.T.dot(A.dot(X_t0)**(beta - 2)) * X_t1
+    pos_forw = A.T.dot(A.dot(X_t0)**(beta - 1))
+
+    # Compute the reverse gradients (t-1 --> t)
+    if beta > 1:
+        neg_back = 1 / (beta - 1) * (A.dot(X_t0)**(beta - 1))
+        pos_back = 1 / (beta - 1) * (X_t1**(beta - 1))
+
+    if beta < 1:
+        neg_back = 1 / (beta - 1) * (X_t1**(beta - 1))
+        pos_back = 1 / (beta - 1) * (A.dot(X_t0)**(beta - 1))
+
+    if beta == 0:
+        neg_back = np.log(A.dot(X_t0))
+        pos_back = np.log(X_t1)
+
+    return (neg_back + neg_forw), (pos_back + pos_forw)
