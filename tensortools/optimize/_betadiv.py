@@ -113,7 +113,7 @@ def calc_div_grad(x, x_h, kr, beta, alg='heuristic'):
     return neg, pos
 
 
-def calc_time_grad(A, X_t0, X_t1, beta, alg='heuristic'):
+def calc_time_grad(A, X_t, beta, alg='heuristic'):
     """
     Compute the positive and negative gradient components for updating
     an X_t. Used as a constraint condition in conjunction with the more general
@@ -126,13 +126,9 @@ def calc_time_grad(A, X_t0, X_t1, beta, alg='heuristic'):
         A : np.ndarray shape: [k, k]
             State-transition matrix (can be of arbitrary lags).
 
-        X_t0 : np.ndarray shape: [k, N]
+        X_t : np.ndarray shape: [k, N]
             Stacked time observation matrix (can be of arbitrary lags).
             Represents X_t_minus_1.
-
-        X_t1 : np.ndarray shape: [k, N]
-            Stacked time observation matrix (can be of arbitrary lags).
-            Represents X_t.
 
         beta : float
             Parameter that defines the specific cost function.
@@ -159,21 +155,33 @@ def calc_time_grad(A, X_t0, X_t1, beta, alg='heuristic'):
     else:
         raise Exception('Specified algorithm not supported.')
 
+    K, N = X_t.shape
+
+    # Setup placeholders
+    neg_forw = np.zeros_like(X_t)
+    pos_forw = np.zeros_like(X_t)
+    neg_back = np.zeros_like(X_t)
+    pos_back = np.zeros_like(X_t)
+
+    X_t0 = X_t[:, :-2]
+    X_t1 = X_t[:, 1:-1]
+    X_t2 = X_t[:, 2:]
+
     # Compute the forward gradients (t --> t+1)
-    neg_forw = A.T.dot(A.dot(X_t0)**(beta - 2)) * X_t1
-    pos_forw = A.T.dot(A.dot(X_t0)**(beta - 1))
+    neg_forw[:, :-2] = A.T.dot(A.dot(X_t0)**(beta - 2)) * X_t1
+    pos_forw[:, :-2] = A.T.dot(A.dot(X_t0)**(beta - 1))
 
     # Compute the reverse gradients (t-1 --> t)
     if beta > 1:
-        neg_back = 1 / (beta - 1) * (A.dot(X_t0)**(beta - 1))
-        pos_back = 1 / (beta - 1) * (X_t1**(beta - 1))
+        neg_back[:, 2:] = 1 / (beta - 1) * (A.dot(X_t1)**(beta - 1))
+        pos_back[:, 2:] = 1 / (beta - 1) * (X_t2**(beta - 1))
 
     if beta < 1:
-        neg_back = 1 / (beta - 1) * (X_t1**(beta - 1))
-        pos_back = 1 / (beta - 1) * (A.dot(X_t0)**(beta - 1))
+        neg_back[:, 2:] = 1 / (beta - 1) * (X_t2**(beta - 1))
+        pos_back[:, 2:] = 1 / (beta - 1) * (A.dot(X_t1)**(beta - 1))
 
     if beta == 0:
-        neg_back = np.log(A.dot(X_t0))
-        pos_back = np.log(X_t1)
+        neg_back[:, 2:] = np.log(A.dot(X_t1))
+        pos_back[:, 2:] = np.log(X_t2)
 
     return (neg_back + neg_forw), (pos_back + pos_forw)
