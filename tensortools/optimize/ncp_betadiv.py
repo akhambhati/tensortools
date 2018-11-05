@@ -104,7 +104,7 @@ def ncp_betadiv(X, rank, beta, random_state=None, init='rand', **options):
             # ii) Update component U_n
             p = U[n].dot(kr.T)
 
-            neg, pos = calc_div_grad(Xn, p, kr, beta, alg='maxmin')
+            neg, pos = calc_div_grad(Xn, p, kr, beta, alg='heuristic')
 
             U[n] *= (neg / pos)
 
