@@ -128,7 +128,6 @@ def calc_time_grad(A, X_t, beta, alg='heuristic'):
 
         X_t : np.ndarray shape: [k, N]
             Stacked time observation matrix (can be of arbitrary lags).
-            Represents X_t_minus_1.
 
         beta : float
             Parameter that defines the specific cost function.
@@ -160,28 +159,12 @@ def calc_time_grad(A, X_t, beta, alg='heuristic'):
     # Setup placeholders
     neg_forw = np.zeros_like(X_t)
     pos_forw = np.zeros_like(X_t)
-    neg_back = np.zeros_like(X_t)
-    pos_back = np.zeros_like(X_t)
 
-    X_t0 = X_t[:, :-2]
-    X_t1 = X_t[:, 1:-1]
-    X_t2 = X_t[:, 2:]
+    X_t0 = X_t[:, :-1]
+    X_t1 = X_t[:, 1:]
 
     # Compute the forward gradients (t --> t+1)
-    neg_forw[:, :-2] = A.T.dot(A.dot(X_t0)**(beta - 2)) * X_t1
-    pos_forw[:, :-2] = A.T.dot(A.dot(X_t0)**(beta - 1))
+    neg_forw[:, :-1] = A.T.dot(A.dot(X_t0)**(beta - 2)) * X_t1
+    pos_forw[:, :-1] = A.T.dot(A.dot(X_t0)**(beta - 1))
 
-    # Compute the reverse gradients (t-1 --> t)
-    if beta > 1:
-        neg_back[:, 2:] = 1 / (beta - 1) * (A.dot(X_t1)**(beta - 1))
-        pos_back[:, 2:] = 1 / (beta - 1) * (X_t2**(beta - 1))
-
-    if beta < 1:
-        neg_back[:, 2:] = 1 / (beta - 1) * (X_t2**(beta - 1))
-        pos_back[:, 2:] = 1 / (beta - 1) * (A.dot(X_t1)**(beta - 1))
-
-    if beta == 0:
-        neg_back[:, 2:] = np.log(A.dot(X_t1))
-        pos_back[:, 2:] = np.log(X_t2)
-
-    return (neg_back + neg_forw), (pos_back + pos_forw)
+    return neg_forw, pos_forw
