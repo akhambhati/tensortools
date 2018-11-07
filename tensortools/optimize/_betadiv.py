@@ -52,8 +52,8 @@ def calc_cost(x, x_h, beta):
                        (beta - 1)))
 
 
-def _mm_gamma_func(beta):
-    """Define the gamma function for MM-algorithm based on beta value"""
+def mm_gamma_func(beta):
+    """Define the gamma function for majorization-minimzation algorithm"""
 
     if (beta < 1):
         return 1 / (2 - beta)
@@ -65,47 +65,34 @@ def _mm_gamma_func(beta):
         return 1 / (beta - 1)
 
 
-def calc_div_grad(x, x_h, kr, beta, alg='heuristic'):
+def calc_div_grad(x, x_h, kr, beta):
     """
     Compute the positive and negative gradient components for the
     beta divergence.
 
     Parameters
     ----------
-        x : (I_1, ..., I_N) array_like
-            A real array (target) with nonnegative entries.
+        x : np.ndarray, unfolded tensor with shape [I_N, prod(diff(I_*, I_N))]
+            Tensor array (target) with nonnegative entries.
 
-        x_h : (I_1, ..., I_N) array_like
-            A real array (approximation) with nonnegative entries.
+        x_h : np.ndarray, unfolded tensor with shape [I_N, prod(diff(I_*, I_N))]
+            Tensor array (approximate) with nonnegative entries.
 
-        kr : (I_1, ..., I_N) array_like
-            A real array for the Khatri-Rao product of all held variables in the
+        kr : np.ndarray, Khatri-Rao tensor with shape [prod(diff(I_*, I_N)), K]
+            Tensor array for the Khatri-Rao product of all held variables in the
             partial derivative.
 
         beta : float
             Parameter that defines the specific cost function.
 
-        alg: ['maxmin', 'heuristic']
-            The algorithm used to weight the gradients depending on desired
-            update speed.
-            - 'maxmin' - maximization-minimization algorithm
-            - 'heuristic' - heuristic algorithm
-
     Return
     ------
         neg: array_like
             Negative gradient component
+
         pos: array_like
             Positive gradient component
     """
-
-    alg = alg.lower()
-    if alg == 'maxmin':
-        pow_fac = _mm_gamma_func(beta)
-    elif alg == 'heuristic':
-        pow_fac = 1
-    else:
-        raise Exception('Specified algorithm not supported.')
 
     neg = (x_h**(beta - 2) * x).dot(kr)
     pos = (x_h**(beta - 1)).dot(kr)
@@ -113,7 +100,7 @@ def calc_div_grad(x, x_h, kr, beta, alg='heuristic'):
     return neg, pos
 
 
-def calc_time_grad(A, X_t, beta, alg='heuristic'):
+def calc_time_grad(A, X_t, beta):
     """
     Compute the positive and negative gradient components for updating
     an X_t. Used as a constraint condition in conjunction with the more general
@@ -133,27 +120,14 @@ def calc_time_grad(A, X_t, beta, alg='heuristic'):
         beta : float
             Parameter that defines the specific cost function.
 
-        alg: ['maxmin', 'heuristic']
-            The algorithm used to weight the gradients depending on desired
-            update speed.
-            - 'maxmin' - maximization-minimization algorithm
-            - 'heuristic' - heuristic algorithm
-
     Return
     ------
         neg: array_like
             Negative gradient component
+
         pos: array_like
             Positive gradient component
     """
-
-    alg = alg.lower()
-    if alg == 'maxmin':
-        pow_fac = _mm_gamma_func(beta)
-    elif alg == 'heuristic':
-        pow_fac = 1
-    else:
-        raise Exception('Specified algorithm not supported.')
 
     K, N = X_t.shape
 
