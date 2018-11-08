@@ -58,10 +58,14 @@ def conv_X_to_varP(X, lags):
     assert K == np.round(K)
     K = int(np.round(K))
 
-    X = X.reshape(lags, K, N)
+    if lags == 1:
+        return X
+    else:
 
-    # Reconstruct the shortened signal
-    # New X has shape: [K, N+lags-1]
-    X = np.concatenate((X[-1, :, :], X[0, :, 1 - lags:]), axis=1)
+        X = X.reshape(lags, K, N)
 
-    return X
+        # Reconstruct the shortened signal
+        # New X has shape: [K, N+lags-1]
+        X = np.concatenate((X[-1, :, :], X[0, :, 1 - lags:]), axis=1)
+
+        return X
