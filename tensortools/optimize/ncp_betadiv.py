@@ -221,7 +221,7 @@ def ncp_betadiv(X,
         # Cost of the dynamical model
         if mode_var is not None:
             AA = conv_A_to_var1(A)
-            XX = conv_X_to_var1(U[n].T, lags=var_dict['lags'])
+            XX = conv_X_to_var1(U[mode_var].T, lags=var_dict['lags'])
             cost_var = calc_cost(XX[:, 1:], AA.dot(XX[:, :-1]),
                                  var_dict['beta'])
         else:
