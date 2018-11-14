@@ -135,7 +135,7 @@ def ncp_betadiv(X,
     # Initialize problem.
     U, normX = optim_utils._get_initial_ktensor(init, X, rank, random_state)
     if mode_var is not None:
-        A = optim_utils._get_initial_transmatr(var_dict['lags'], rank, random_state)
+        A = optim_utils._get_initial_statematr(var_dict['lags'], rank, random_state)
     else:
         A = None
     model = FitModel(factors=U,
