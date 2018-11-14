@@ -1,8 +1,6 @@
-from .ensemble import Ensemble
-from .tensors import KTensor
-
+from .data.random_tensor import rand_ktensor, randn_ktensor
 from .diagnostics import kruskal_align
-
-from .data.random_tensor import randn_ktensor, rand_ktensor
-
-from .optimize import ncp_betadiv, _var
+from .dynamic import LDS
+from .ensemble import Ensemble
+from .optimize import _var, ncp_betadiv
+from .tensors import KTensor
