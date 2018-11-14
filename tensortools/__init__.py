@@ -3,8 +3,6 @@ from .tensors import KTensor
 
 from .diagnostics import kruskal_align
 
-from .visualization import plot_factors, plot_objective, plot_similarity
-
 from .data.random_tensor import randn_ktensor, rand_ktensor
 
-from .optimize import cp_als, mcp_als, ncp_hals, ncp_bcd, ncp_betadiv, _var
+from .optimize import ncp_betadiv, _var
