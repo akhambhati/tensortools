@@ -9,7 +9,7 @@ Last Updated: 2018/11/07
 
 import numpy as np
 from tensortools.operations import khatri_rao, unfold
-from tensortools.optimize import FitResult, optim_utils
+from tensortools.optimize import FitModel, optim_utils
 
 from ._betadiv import calc_cost, calc_div_grad, calc_time_grad, mm_gamma_func
 from ._var import (conv_A_to_var1, conv_A_to_varP, conv_X_to_var1,
@@ -96,9 +96,9 @@ def ncp_betadiv(X,
 
     Returns
     -------
-    result : FitResult instance
-        Object which holds the fitted results. It provides the factor matrices
-        in form of a KTensor, ``result.factors``.
+    model : FitModel instance
+        Object which holds the fitted model. It provides the factor matrices
+        in form of a KTensor, ``model.factors``.
 
     References
     ----------
@@ -135,10 +135,13 @@ def ncp_betadiv(X,
     # Initialize problem.
     U, normX = optim_utils._get_initial_ktensor(init, X, rank, random_state)
     if mode_var is not None:
-        A = np.random.random((var_dict['lags'], rank, rank))
+        A = optim_utils._get_initial_transmatr(var_dict['lags'], rank, random_state)
     else:
         A = None
-    result = FitResult(U, '{}-Divergence'.format(u'\u03B2'), **fit_dict)
+    model = FitModel(factors=U,
+                     states=A,
+                     method='{}-Divergence'.format(u'\u03B2'),
+                     **fit_dict)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # Iterate algorithm until convergence or maxiter is reached
@@ -147,7 +150,7 @@ def ncp_betadiv(X,
     # iii) Update component U_1, U_2, ... U_N
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    while result.still_optimizing:
+    while model.still_optimizing:
 
         for n in range(X.ndim):
 
@@ -201,7 +204,7 @@ def ncp_betadiv(X,
                 A = conv_A_to_varP(AA, lags=var_dict['lags'])
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # Update the optimization result, checks for convergence.
+        # Update the optimization model, checks for convergence.
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # Compute objective function
 
@@ -227,11 +230,8 @@ def ncp_betadiv(X,
         else:
             cost_var = 0
 
-        # Update the results
-        result.update(cost_obs + cost_reg + cost_var)
+        # Update the model
+        model.update(cost_obs + cost_reg + cost_var)
 
-    # end optimization loop, return result.
-    if mode_var is not None:
-        return result.finalize(), A
-    else:
-        return result.finalize()
+    # end optimization loop, return model.
+    return model.finalize()
