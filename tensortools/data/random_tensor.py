@@ -134,3 +134,59 @@ def rand_ktensor(shape, rank, norm=None, random_state=None):
     # Randomize low-rank factor matrices i.i.d. uniform random elements.
     factors = KTensor([rns.uniform(0.0, 1.0, size=(i, rank)) for i in shape])
     return _rescale_tensor(factors, norm)
+
+
+def rand_array(shape, random_state=None):
+    """
+    Generate a random array, where the entries are
+    drawn from the standard uniform distribution in the interval [0, 1].
+
+    Parameters
+    ----------
+    shape : tuple
+        shape of the tensor
+
+    random_state : integer, RandomState instance or None, optional (default ``None``)
+        If integer, random_state is the seed used by the random number generator;
+        If RandomState instance, random_state is the random number generator;
+        If None, the random number generator is the RandomState instance used by np.random.
+
+    Returns
+    -------
+    X : np.ndarray, shape: [shape]
+        Array with random entries.
+    """
+
+    # Check input.
+    rns = _check_random_state(random_state)
+
+    # Randomize low-rank factor matrices i.i.d. uniform random elements.
+    return rns.uniform(0.0, 1.0, size=shape)
+
+
+def randn_array(shape, random_state=None):
+    """
+    Generate a random array, where the entries are
+    drawn from the standard normal distribution. 
+
+    Parameters
+    ----------
+    shape : tuple
+        shape of the tensor
+
+    random_state : integer, RandomState instance or None, optional (default ``None``)
+        If integer, random_state is the seed used by the random number generator;
+        If RandomState instance, random_state is the random number generator;
+        If None, the random number generator is the RandomState instance used by np.random.
+
+    Returns
+    -------
+    X : np.ndarray, shape: [shape]
+        Array with random entries.
+    """
+
+    # Check input.
+    rns = _check_random_state(random_state)
+
+    # Randomize low-rank factor matrices i.i.d. uniform random elements.
+    return rns.normal(loc=0.0, scale=1.0, size=shape)
