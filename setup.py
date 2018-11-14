@@ -1,6 +1,5 @@
 from distutils.command.clean import clean as Clean
 from setuptools import setup, Extension, find_packages
-from Cython.Build import cythonize
 
 # To use a consistent encoding
 from codecs import open
@@ -14,14 +13,6 @@ EMAIL = 'alex.h.willia@gmail.com'
 VERSION = "0.3"
 URL = 'https://github.com/ahwillia/tensortools'
 LICENSE = 'MIT'
-
-# Set up Cython
-try:
-    from Cython.Distutils import build_ext
-except ImportError:
-    use_cython = False
-else:
-    use_cython = True
 
 here = path.abspath(path.dirname(__file__))
 
@@ -61,18 +52,7 @@ cmdclass = {'clean': CleanCommand}
 cmdclass = {}
 ext_modules = []
 
-if use_cython:
-    ext_modules += [
-        Extension("tensortools._hals_update", ["tensortools/optimize/_hals_update.pyx"]),
-    ]
-    cmdclass.update({'build_ext': build_ext})
-else:
-    ext_modules += [
-        Extension("tensortools._hals_update", ["tensortools/optimize/_hals_update.c"]),
-    ]
-
 install_requires = [
-    'cython',
     'numpy',
     'scipy',
     'tqdm',
@@ -118,7 +98,4 @@ setup(
 
     packages=find_packages(exclude=['tests*']),
 
-    # cythonize
-    cmdclass=cmdclass,
-    ext_modules=ext_modules
 )
