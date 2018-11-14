@@ -1,11 +1,13 @@
 """Utilities for summarizing and setting up optimization."""
 
+import timeit
+
 import numpy as np
 import scipy as sci
 from scipy import linalg
+from tensortools.data.random_tensor import (rand_array, rand_ktensor,
+                                            randn_array, randn_ktensor)
 from tensortools.tensors import KTensor
-import timeit
-from tensortools.data.random_tensor import randn_ktensor, rand_ktensor, randn_array, rand_array
 
 
 def _check_cpd_inputs(X, rank):
@@ -119,14 +121,20 @@ class FitModel(object):
         Objective values at each iteration.
     """
 
-    def __init__(self, factors=None, states=None, method=None, tol=1e-5, verbose=True, max_iter=500,
-                 min_iter=1, max_time=np.inf):
+    def __init__(self,
+                 model=None,
+                 method=None,
+                 tol=1e-5,
+                 verbose=True,
+                 max_iter=500,
+                 min_iter=1,
+                 max_time=np.inf):
         """Initializes FitModel.
 
         Parameters
         ----------
-        factors : KTensor
-            Initial guess for tensor decomposition.
+        model : dict
+            Arbitrary dictionary that holds all specified and fitted parameters.
         states : np.ndarray
             Initial guess for state transition matrix.
         method : str
@@ -142,8 +150,7 @@ class FitModel(object):
         max_time : float
             Maximum number of seconds before quitting early.
         """
-        self.factors = factors
-        self.states = states
+        self.model = model
         self.obj = np.inf
         self.obj_hist = []
         self.method = method
@@ -164,11 +171,13 @@ class FitModel(object):
         """True unless converged or maximum iterations/time exceeded."""
 
         # Check if we need to give up on optimizing.
-        if (self.iterations > self.max_iter) or (self.time_elapsed() > self.max_time):
+        if (self.iterations > self.max_iter) or (self.time_elapsed() >
+                                                 self.max_time):
             return False
 
         # Always optimize for at least 'min_iter' iterations.
-        elif not hasattr(self, 'improvement') or (self.iterations < self.min_iter):
+        elif not hasattr(self,
+                         'improvement') or (self.iterations < self.min_iter):
             return True
 
         # Check convergence.
