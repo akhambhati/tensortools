@@ -72,10 +72,12 @@ def _get_initial_ktensor(init, X, rank, random_state, scale_norm=True):
     return U, normX
 
 
-def _get_initial_statematr(lag, rank, random_state, scale_norm=True):
+def _get_initial_statematr(init, lag, rank, random_state, scale_norm=True):
     """
     Parameters
     ----------
+    init : str
+        Specifies type of initializations ('randn', 'rand')
     lag : int
         Memory inherent to the state transition matrix
     rank : int
