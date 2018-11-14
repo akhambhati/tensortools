@@ -5,7 +5,7 @@ import scipy as sci
 from scipy import linalg
 from tensortools.tensors import KTensor
 import timeit
-from tensortools.data.random_tensor import randn_ktensor, rand_ktensor
+from tensortools.data.random_tensor import randn_ktensor, rand_ktensor, randn_array, rand_array
 
 
 def _check_cpd_inputs(X, rank):
@@ -50,6 +50,7 @@ def _get_initial_ktensor(init, X, rank, random_state, scale_norm=True):
     normX : float
         Frobenious norm of tensor data.
     """
+
     normX = linalg.norm(X) if scale_norm else None
 
     if init == 'randn':
@@ -71,7 +72,38 @@ def _get_initial_ktensor(init, X, rank, random_state, scale_norm=True):
     return U, normX
 
 
-class FitResult(object):
+def _get_initial_statematr(lag, rank, random_state, scale_norm=True):
+    """
+    Parameters
+    ----------
+    lag : int
+        Memory inherent to the state transition matrix
+    rank : int
+        Number of states
+    random_state : RandomState or int
+        Specifies seed for random number generator
+    scale_norm : bool
+        If True, norm is scaled to match X (default: True)
+
+    Returns
+    -------
+    A : np.ndarray, shape: [lag x rank x rank]
+        Initial factor matrices used optimization.
+    """
+
+    if init == 'randn':
+        A = randn_array((lag, rank, rank), random_state)
+
+    elif init == 'rand':
+        A = rand_array((lag, rank, rank), random_state)
+
+    normA = np.linalg.norm(A) if scale_norm else 1
+    A /= normA
+
+    return A
+
+
+class FitModel(object):
     """
     Holds result of optimization.
 
@@ -85,14 +117,16 @@ class FitResult(object):
         Objective values at each iteration.
     """
 
-    def __init__(self, factors, method, tol=1e-5, verbose=True, max_iter=500,
+    def __init__(self, factors=None, states=None, method=None, tol=1e-5, verbose=True, max_iter=500,
                  min_iter=1, max_time=np.inf):
-        """Initializes FitResult.
+        """Initializes FitModel.
 
         Parameters
         ----------
         factors : KTensor
             Initial guess for tensor decomposition.
+        states : np.ndarray
+            Initial guess for state transition matrix.
         method : str
             Name of optimization method (used for printing).
         tol : float
@@ -107,6 +141,7 @@ class FitResult(object):
             Maximum number of seconds before quitting early.
         """
         self.factors = factors
+        self.states = states
         self.obj = np.inf
         self.obj_hist = []
         self.method = method
