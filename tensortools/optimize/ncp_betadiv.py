@@ -21,12 +21,13 @@ def ncp_betadiv(X,
                 observation_dict={'beta': 2},
                 regularize_dict={'axis': None,
                                  'l1_ratio': 0.5,
-                                 'alpha': 1e-6},
+                                 'alpha': 1e-6,
+                                 'init': 'rand'},
                 var_dict={'axis': None,
                           'beta': 2,
-                          'lags': 1},
+                          'lags': 1,
+                          'init': 'rand'},
                 random_state=None,
-                init='rand',
                 fit_dict={
                     'tol': 1e-5,
                     'min_iter': 1,
@@ -133,9 +134,9 @@ def ncp_betadiv(X,
             assert var_dict['lags'] >= 1
 
     # Initialize problem.
-    U, normX = optim_utils._get_initial_ktensor(init, X, rank, random_state)
+    U, normX = optim_utils._get_initial_ktensor(obs_dict['init'], X, rank, random_state)
     if mode_var is not None:
-        A = optim_utils._get_initial_statematr(var_dict['lags'], rank, random_state)
+        A = optim_utils._get_initial_statematr(var_dict['init'], var_dict['lags'], rank, random_state)
     else:
         A = None
     model = FitModel(factors=U,
