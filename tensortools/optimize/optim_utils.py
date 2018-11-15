@@ -133,15 +133,7 @@ class FitModel(object):
         self.model_param = model_param
         self.fit_param = {}
         self.set_fit_param()
-
-        self.status = {
-            'obj': np.inf,
-            'obj_hist': [],
-            'iterations': 0,
-            'converged': False,
-            't0': timeit.default_timer(),
-            'total_time': None
-        }
+        self.reset_status()
 
     @property
     def still_optimizing(self):
@@ -226,3 +218,13 @@ class FitModel(object):
         self.fit_param['max_iter'] = max_iter
         self.fit_param['min_iter'] = min_iter
         self.fit_param['max_time'] = max_time
+
+    def reset_status(self):
+        self.status = {
+            'obj': np.inf,
+            'obj_hist': [],
+            'iterations': 0,
+            'converged': False,
+            't0': timeit.default_timer(),
+            'total_time': None
+        }
