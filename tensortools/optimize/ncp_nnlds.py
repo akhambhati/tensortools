@@ -190,6 +190,9 @@ def model_update(
     optim_utils._check_cpd_inputs(X, model.model_param['rank'])
     model.set_fit_param(**fit_dict)
 
+    # Reset the status of the model
+    model.reset_status()
+
     # Set pointers to commonly used objects
     mp = model.model_param
     W = mp['NTF']['W']
