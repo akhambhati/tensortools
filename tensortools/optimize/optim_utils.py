@@ -121,96 +121,108 @@ class FitModel(object):
         Objective values at each iteration.
     """
 
-    def __init__(self,
-                 model=None,
-                 method=None,
-                 tol=1e-5,
-                 verbose=True,
-                 max_iter=500,
-                 min_iter=1,
-                 max_time=np.inf):
+    def __init__(self, model_param={}):
         """Initializes FitModel.
 
         Parameters
         ----------
-        model : dict
-            Arbitrary dictionary that holds all specified and fitted parameters.
-        states : np.ndarray
-            Initial guess for state transition matrix.
-        method : str
-            Name of optimization method (used for printing).
-        tol : float
-            Stopping criterion.
-        verbose : bool
-            Whether to print progress of optimization.
-        max_iter : int
-            Maximum number of iterations before quitting early.
-        min_iter : int
-            Minimum number of iterations before stopping due to convergence.
-        max_time : float
-            Maximum number of seconds before quitting early.
+        model_param : dict
+            Dictionary that holds all parameters pertaining to the model.
         """
-        self.model = model
-        self.obj = np.inf
-        self.obj_hist = []
-        self.method = method
 
-        self.tol = tol
-        self.verbose = verbose
-        self.max_iter = max_iter
-        self.min_iter = min_iter
-        self.max_time = max_time
+        self.model_param = model_param
+        self.fit_param = {}
+        self.set_fit_param()
 
-        self.iterations = 0
-        self.converged = False
-        self.t0 = timeit.default_timer()
-        self.total_time = None
+        self.status = {
+            'obj': np.inf,
+            'obj_hist': [],
+            'iterations': 0,
+            'converged': False,
+            't0': timeit.default_timer(),
+            'total_time': None
+        }
 
     @property
     def still_optimizing(self):
         """True unless converged or maximum iterations/time exceeded."""
 
         # Check if we need to give up on optimizing.
-        if (self.iterations > self.max_iter) or (self.time_elapsed() >
-                                                 self.max_time):
+        if ((self.status['iterations'] > self.fit_param['max_iter'])
+                or (self.time_elapsed() > self.fit_param['max_time'])):
             return False
 
         # Always optimize for at least 'min_iter' iterations.
-        elif not hasattr(self,
-                         'improvement') or (self.iterations < self.min_iter):
+        elif (('improvement' not in self.status)
+              or (self.status['iterations'] < self.fit_param['min_iter'])):
             return True
 
         # Check convergence.
         else:
-            self.converged = self.improvement < self.tol
-            return False if self.converged else True
+            self.status['converged'] = \
+                    self.status['improvement'] < self.fit_param['tol']
+            return False if self.status['converged'] else True
 
     def time_elapsed(self):
-        return timeit.default_timer() - self.t0
+        return timeit.default_timer() - self.status['t0']
 
     def update(self, obj):
 
         # Keep track of iterations.
-        self.iterations += 1
+        self.status['iterations'] += 1
 
         # Compute improvement in objective.
-        self.improvement = self.obj - obj
-        self.obj = obj
-        self.obj_hist.append(obj)
+        self.status['improvement'] = self.status['obj'] - obj
+        self.status['obj'] = obj
+        self.status['obj_hist'].append(obj)
 
         # If desired, print progress.
-        if self.verbose:
-            p_args = self.method, self.iterations, self.obj, self.improvement
+        if self.fit_param['verbose']:
+            p_args = (self.fit_param['method'], self.status['iterations'],
+                      self.status['obj'], self.status['improvement'])
             s = '{}: iteration {}, objective {}, improvement {}.'
             print(s.format(*p_args))
 
     def finalize(self):
 
         # Set final time, final print statement
-        self.total_time = self.time_elapsed()
+        self.status['total_time'] = self.time_elapsed()
 
-        if self.verbose:
+        if self.fit_param['verbose']:
             s = 'Converged after {} iterations, {} seconds. Objective: {}.'
-            print(s.format(self.iterations, self.total_time, self.obj))
+            print(
+                s.format(self.status['iterations'], self.status['total_time'],
+                         self.status['obj']))
 
         return self
+
+    def set_fit_param(self,
+                      method=None,
+                      tol=1e-5,
+                      verbose=True,
+                      max_iter=500,
+                      min_iter=1,
+                      max_time=np.inf):
+        """Set the parameters of the model fitting.
+
+        Parameters
+        ----------
+        method : str, Name of optimization method (used for printing).
+
+        tol : float, Stopping criterion.
+
+        verbose : bool, Whether to print progress of optimization.
+
+        max_iter : int, Max iterations before quitting early.
+
+        min_iter : int, Min iterations before stopping due to convergence.
+
+        max_time : float, Max seconds before quitting early.
+        """
+
+        self.fit_param['method'] = method
+        self.fit_param['tol'] = tol
+        self.fit_param['verbose'] = verbose
+        self.fit_param['max_iter'] = max_iter
+        self.fit_param['min_iter'] = min_iter
+        self.fit_param['max_time'] = max_time

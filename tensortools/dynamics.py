@@ -103,6 +103,17 @@ class LDS(object):
         else:
             return False
 
+    def schur_stabilize(self):
+        """Force schur stability of the system."""
+
+        form = self.form
+        self.as_ord_1()
+        self.A /= (np.abs(np.linalg.svd(self.A)[1]).max() + 1)
+
+        if form != self.form:
+            self.as_ord_p()
+
+
     def conv_X_to_lagged(self, X):
         """Make an auxilliary state matrix lagged based on LDS parameters."""
 
