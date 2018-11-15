@@ -142,6 +142,7 @@ def init_model(
 def model_update(
         X,
         model,
+        fixed_axes=[],
         fit_dict={
             'method': '{}-Divergence'.format(u'\u03B2'),
             'tol': 1e-5,
@@ -161,7 +162,15 @@ def model_update(
             Example modes are channels, time, trials, spectral frequency, etc.
 
         model : FitModel object
-            Model that was created uding the init_model function.
+            Model that was created using the init_model function.
+
+        fixed_axes: None, int, or list[int]
+            Modes of the model to keep constant during the update.
+            Typically used to test the model on new data by keeping
+            "basis modes" fixed and updating "activation" coefficients.
+
+            If list[int], fix modes corresponding to axes in X for each int.
+                An empty list implies that all modes get updated.
 
         fit_dict: dict, specifying fitting options.
 
@@ -186,8 +195,23 @@ def model_update(
     Neural computation 23.9 (2011): 2421-2456.
     """
 
-    # Check inputs.
+    # Check input matrix
     optim_utils._check_cpd_inputs(X, model.model_param['rank'])
+    if X.shape != model.model_param['NTF']['W'].shape:
+        raise Exception('Shape of input X does not match shape expected by ' +
+                        'initialized model.')
+
+    # Check fixed axes
+    if type(fixed_axes) is not list:
+        raise Exception('Fixed axes must be list of axis indices')
+    if not all([
+            True if (int(a) == a) and (a >= 0) and (a < X.ndim) else False
+            for a in fixed_axes
+    ]):
+        raise Exception('Fixed axes not integers or exceed dimensions of X.')
+    fixed_axes = [int(a) for a in fixed_axes]
+
+    # Update model fit parameters
     model.set_fit_param(**fit_dict)
 
     # Reset the status of the model
@@ -211,6 +235,10 @@ def model_update(
     while model.still_optimizing:
 
         for n in range(X.ndim):
+
+            # If n corresponds to one of the fixed axes then don't update
+            if n in fixed_axes:
+                continue
 
             # Select all components, but U_n
             components = [W[j] for j in range(X.ndim) if j != n]
