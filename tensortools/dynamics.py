@@ -113,7 +113,6 @@ class LDS(object):
         if form != self.form:
             self.as_ord_p()
 
-
     def conv_X_to_lagged(self, X):
         """Make an auxilliary state matrix lagged based on LDS parameters."""
 
@@ -126,7 +125,7 @@ class LDS(object):
             raise Exception('Axis 0 of X must be of length equal to ' +
                             'LDS rank ({}).'.format(self.rank))
 
-        if N <= self.lag:
+        if N < self.lag:
             raise Exception('Axis 1 of X must have greater samples than ' +
                             'lag-order of LDS ({})'.format(self.lag))
 
