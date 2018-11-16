@@ -6,12 +6,13 @@ Cost optimization uses a majorization-minimization algorithm with
 conditionally-weighted multiplicative updates.
 
 Author: Ankit N. Khambhati <akhambhati@gmail.com>
-Last Updated: 2018/11/14
+Last Updated: 2018/11/15
 """
 
 import numpy as np
 from tensortools.dynamics import LDS
 from tensortools.operations import khatri_rao, unfold
+from tensortools.tensors import KTensor
 
 from . import optim_utils
 from ._betadiv import calc_cost, calc_div_grad, calc_time_grad, mm_gamma_func
@@ -157,7 +158,7 @@ def model_update(
     Parameters
     ----------
         X : np.ndarray, tensor_like with shape: [I_1, I_2, ..., I_N]
-            Skeletal Tensor containing dimensionality of the system output.
+            Tensor containing dimensionality of the system output.
             Each Tensor fiber, I, is considered a mode of the system.
             Example modes are channels, time, trials, spectral frequency, etc.
 
@@ -328,3 +329,144 @@ def model_update(
 
     # end optimization loop, return model.
     return model.finalize()
+
+
+def model_forecast(
+        X,
+        model,
+        forecast_steps,
+        fit_dict={
+            'method': '{}-Divergence'.format(u'\u03B2'),
+            'tol': 1e-5,
+            'min_iter': 1,
+            'max_iter': 500,
+            'verbose': True
+        }):
+    """
+    Use a trained NN-LDS model to forecast future states and observations.
+
+    Parameters
+    ----------
+        X : np.ndarray, tensor_like with shape: [I_1, I_2, ..., I_N]
+            Tensor containing dimensionality of the system output.
+            Each Tensor fiber, I, is considered a mode of the system.
+            Example modes are channels, time, trials, spectral frequency, etc.
+
+        model : FitModel object
+            Model that was created using the init_model function. The `model`
+            must explicitly contain an LDS component.
+
+        forecast_steps: int
+            Number of samples ahead to forecast using each time sample in X
+            as a starting-point.
+
+        fit_dict: dict, specifying fitting options.
+
+            tol: float, Stopping tolerance for reconstruction error.
+
+            max_iter: int, Max number of iterations to perform before exiting.
+
+            min_iter: int, Min number of iterations to perform before exiting.
+
+            verbose : bool, Display progress.
+
+    Returns
+    -------
+    Xp : list[np.ndarray], listtensor_like with shape: [I_1, I_2, ..., I_N]
+        Skeletal Tensor containing dimensionality of the system output.
+            Each Tensor fiber, I, is considered a mode of the system.
+            Example modes are channels, time, trials, spectral frequency, etc.
+    """
+
+    # Check model
+    if 'NTF' not in model.model_param:
+        raise Exception('Model does not have a observation component.')
+    if 'LDS' not in model.model_param:
+        raise Exception('Model does not have a dynamical system component.')
+
+    # Check input matrix
+    optim_utils._check_cpd_inputs(X, model.model_param['rank'])
+
+    # Update model fit parameters
+    model.set_fit_param(**fit_dict)
+
+    # Reset the status of the model
+    model.reset_status()
+
+    # Set pointers to commonly used objects
+    mp = model.model_param
+    dA = mp['LDS']['A']
+    ax_t = mp['LDS']['axis']
+
+    # Initialize temporal state coefficients
+    assert model.model_param['NTF']['init'] in ['rand', 'randn']
+    if model.model_param['NTF']['init'] == 'randn':
+        H = np.random.randn(X.shape[ax_t], model.model_param['rank'])
+    else:
+        H = np.random.rand(X.shape[ax_t], model.model_param['rank'])
+
+    # Create a new model tensor with the temporal state mode replaced
+    W = KTensor([mp['NTF']['W'][j] if j != ax_t else H for j in range(X.ndim)])
+    mp['NTF']['W'] = W
+
+    # Use observation model to estimate the current temporal state mode
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # Iterate algorithm until convergence or maxiter is reached
+    # i)   compute the N gram matrices and multiply
+    # ii)  Compute Khatri-Rao product
+    # iii) Update component U_1, U_2, ... U_N
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    while model.still_optimizing:
+
+        # Select all components, but U_n
+        components = [W[j] for j in range(X.ndim) if j != ax_t]
+
+        # i)  Compute Khatri-Rao product
+        kr = khatri_rao(components)
+        Xn = unfold(X, ax_t)
+
+        # ii) Compute unfolded prediction of X
+        p = W[ax_t].dot(kr.T)
+
+        # iii) Compute gradient for the observation model
+        neg, pos = calc_div_grad(Xn, p, kr, mp['NTF']['beta'])
+
+        # vi) Update the observational component weights
+        W[ax_t] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
+
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # Update the optimization model, checks for convergence.
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # Compute objective function
+
+        # Cost of the observation model
+        cost_obs = calc_cost(X, W.full(), mp['NTF']['beta'])
+
+        # Update the model
+        model.update(cost_obs)
+
+    # end optimization loop.
+    # Current temporal state mode is inferred, coefficients have been updated
+    model.finalize()
+
+    # Use LDS and current temporal state mode to forecast future state mode
+    dA.as_ord_1()
+    WL = dA.conv_X_to_lagged(W[ax_t].T)
+
+    WP = []
+    for t in range(forecast_steps):
+        if t == 0:
+            WP.append(dA.A.dot(WL))
+        else:
+            WP.append(dA.A.dot(WP[-1]))
+    WP = np.array([dA.conv_X_to_unlagged(wlp).T for wlp in WP])
+
+    dA.as_ord_p()
+
+    # Re-mix forecasted state mode coefs through NTF
+    XP = [
+        KTensor([W[j] if j != ax_t else w for j in range(X.ndim)]) for w in WP
+    ]
+
+    return XP
