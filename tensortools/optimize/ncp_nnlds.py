@@ -6,7 +6,7 @@ Cost optimization uses a majorization-minimization algorithm with
 conditionally-weighted multiplicative updates.
 
 Author: Ankit N. Khambhati <akhambhati@gmail.com>
-Last Updated: 2018/11/15
+Last Updated: 2018/12/28
 """
 
 import numpy as np
@@ -31,6 +31,7 @@ def init_model(
                   'beta': 2,
                   'lags': 1,
                   'init': 'rand'},
+        input_signal=None,
         random_state=None):
     """
     Initialize a FitModel object with parameters for NN-LDS.
@@ -83,6 +84,10 @@ def init_model(
 
             lags: int, Lag-order corresponding to system memory.
 
+        input_signal: np.ndarray, shape: [t, p]
+            If LDS_dict is used, then input_signal specifies the
+            p-dimensional input signal, or control input, over time t.
+
         random_state: integer, RandomState instance or None
             If integer, specifies seed used by the random number generator;
             If RandomState, specifies object of the random number generator;
@@ -119,6 +124,13 @@ def init_model(
         if (LDS_dict['lags'] < 0):
             raise Exception('LDS lag-order must be greater than 0.')
 
+        if type(input_signal) != np.ndarray:
+            raise Exception('LDS input signal must be a numpy array')
+
+        if X.shape[LDS_dict['axis']] != input_signal.shape[0]:
+            raise Exception('Length of input signal does not match length of ' +
+                    'data tensor.')
+
     # Initialize model arrays/tensors.
     W, _ = optim_utils._get_initial_ktensor(NTF_dict['init'], X, rank,
                                             random_state)
@@ -129,6 +141,10 @@ def init_model(
             optim_utils._get_initial_statematr(
                 LDS_dict['init'], LDS_dict['lags'], rank, random_state))
         LDS_dict['A'] = A
+
+        B = optim_utils._get_initial_controlmatr(
+                LDS_dict['init'], rank, input_signal.shape[1], random_state)
+        LDS_dict['B'] = B
 
     model = optim_utils.FitModel(model_param={
         'rank': rank,
@@ -143,6 +159,7 @@ def init_model(
 def model_update(
         X,
         model,
+        input_signal=None,
         fixed_axes=[],
         fit_dict={
             'method': '{}-Divergence'.format(u'\u03B2'),
@@ -164,6 +181,10 @@ def model_update(
 
         model : FitModel object
             Model that was created using the init_model function.
+
+        input_signal: np.ndarray, shape: [t, p]
+            If LDS_dict is used, then input_signal specifies the
+            p-dimensional input signal, or control input, over time t.
 
         fixed_axes: None, int, or list[int]
             Modes of the model to keep constant during the update.
