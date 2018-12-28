@@ -107,6 +107,34 @@ def _get_initial_statematr(init, lag, rank, random_state, scale_norm=True):
     return A
 
 
+def _get_initial_controlmatr(init, rank, input_size, random_state):
+    """
+    Parameters
+    ----------
+    init : str
+        Specifies type of initializations ('randn', 'rand')
+    rank : int
+        Number of states
+    input_size : int
+        Number of inputs
+    random_state : RandomState or int
+        Specifies seed for random number generator
+
+    Returns
+    -------
+    B : np.ndarray, shape: [rank x input_size]
+        Initial factor matrices used optimization.
+    """
+
+    if init == 'randn':
+        B = randn_array((rank, input_size), random_state)
+
+    elif init == 'rand':
+        B = rand_array((rank, input_size), random_state)
+
+    return B
+
+
 class FitModel(object):
     """
     Holds result of optimization.
