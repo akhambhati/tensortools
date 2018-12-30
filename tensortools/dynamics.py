@@ -215,3 +215,59 @@ class LDS(object):
                 (X[-1, :, :], X[0, :, 1 - self.lag_state:]), axis=1)
 
             return X
+
+    def conv_exog_to_lagged(self, X):
+        """Make an auxilliary input matrix lagged based on LDS parameters."""
+
+        # X has shape: [rank, N]
+        if X.ndim != 2:
+            raise Exception('X must be a 2-D array.')
+
+        K, N = X.shape
+        if K != self.rank_exog:
+            raise Exception(
+                'Axis 0 of X must be of length equal to ' +
+                'control-input rank ({}).'.format(self.rank_exog))
+
+        if N < self.lag_exog:
+            raise Exception(
+                'Axis 1 of X must have greater samples than ' +
+                'lag-order of control-input ({})'.format(self.lag_exog))
+
+        # Shift X to shape (L, K, N-L+1)
+        # Return an unfolded array (K*L, N-L+1)
+        X = np.array([
+            X[:, l:(N - (self.lag_exog - l) + 1)]
+            for l in range(self.lag_exog - 1, -1, -1)
+        ])
+
+        return X.reshape(-1, N - self.lag_exog + 1)
+
+    def conv_exog_to_unlagged(self, X):
+        """Make an auxilliary input matrix unlagged based on LDS parameters."""
+
+        # X has shape: [rank*lags, N-rank]
+        if X.ndim != 2:
+            raise Exception('X must be a 2-D array.')
+
+        KL, N = X.shape
+        K = KL / self.lag_exog
+
+        if (KL != self.rank_exog * self.lag_exog) or (K != np.round(K)):
+            raise Exception(
+                'Axis 0 of X must be of length equal to ' +
+                'control-input rank ({}) '.format(self.rank_exog) +
+                'times control-input lag ({}).'.format(self.lag_exog))
+        K = int(np.round(K))
+
+        if self.lag_exog == 1:
+            return X
+        else:
+            X = X.reshape(self.lag_exog, K, N)
+
+            # Reconstruct the shortened signal
+            # New X has shape: [K, N+lags-1]
+            X = np.concatenate(
+                (X[-1, :, :], X[0, :, 1 - self.lag_exog:]), axis=1)
+
+            return X
