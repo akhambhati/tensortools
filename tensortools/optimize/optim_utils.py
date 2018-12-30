@@ -107,7 +107,7 @@ def _get_initial_statematr(init, lag, rank, random_state, scale_norm=True):
     return A
 
 
-def _get_initial_controlmatr(init, rank, input_size, random_state):
+def _get_initial_controlmatr(init, lag, rank, exog_size, random_state):
     """
     Parameters
     ----------
@@ -115,22 +115,22 @@ def _get_initial_controlmatr(init, rank, input_size, random_state):
         Specifies type of initializations ('randn', 'rand')
     rank : int
         Number of states
-    input_size : int
-        Number of inputs
+    exog_size : int
+        Number of exogenous inputs
     random_state : RandomState or int
         Specifies seed for random number generator
 
     Returns
     -------
-    B : np.ndarray, shape: [rank x input_size]
+    B : np.ndarray, shape: [lag x rank x exog_size]
         Initial factor matrices used optimization.
     """
 
     if init == 'randn':
-        B = randn_array((rank, input_size), random_state)
+        B = randn_array((lag, rank, exog_size), random_state)
 
     elif init == 'rand':
-        B = rand_array((rank, input_size), random_state)
+        B = rand_array((lag, rank, exog_size), random_state)
 
     return B
 
