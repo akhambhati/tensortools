@@ -100,7 +100,7 @@ def calc_div_grad(x, x_h, kr, beta):
     return neg, pos
 
 
-def calc_time_grad(A, X_t, beta):
+def calc_time_grad(A, X_t, B, U_t, beta):
     """
     Compute the positive and negative gradient components for updating
     an X_t. Used as a constraint condition in conjunction with the more general
@@ -116,6 +116,13 @@ def calc_time_grad(A, X_t, beta):
         X_t : np.ndarray shape: [k, N]
             Stacked time observation matrix (can be of arbitrary lags).
             Represents X_t_minus_1.
+
+        B : np.ndarray shape: [k, p]
+            Control-input matrix (can be of arbitrary lags).
+
+        U_t : np.ndarray shape: [p, N]
+            Stacked time exogenous input vector (can be of arbitrary lags).
+            Represents U_t_minus_1.
 
         beta : float
             Parameter that defines the specific cost function.
@@ -141,21 +148,28 @@ def calc_time_grad(A, X_t, beta):
     X_t1 = X_t[:, 1:-1]
     X_t2 = X_t[:, 2:]
 
+    U_t0 = U_t[:, :-2]
+    U_t1 = U_t[:, 1:-1]
+    U_t2 = U_t[:, 2:]
+
+
     # Compute the forward gradients (t --> t+1)
-    neg_forw[:, :-2] = A.T.dot(A.dot(X_t0)**(beta - 2)) * X_t1
-    pos_forw[:, :-2] = A.T.dot(A.dot(X_t0)**(beta - 1))
+    AXBU = A.dot(X_t0) + B.dot(U_t0)
+    neg_forw[:, :-2] = A.T.dot(AXBU**(beta - 2)) * X_t1
+    pos_forw[:, :-2] = A.T.dot(AXBU**(beta - 1))
 
     # Compute the reverse gradients (t-1 --> t)
+    AXBU = A.dot(X_t1) + B.dot(U_t1)
     if beta > 1:
-        neg_back[:, 2:] = np.abs(1 / (beta - 1)) * (A.dot(X_t1)**(beta - 1))
+        neg_back[:, 2:] = np.abs(1 / (beta - 1)) * (AXBU**(beta - 1))
         pos_back[:, 2:] = np.abs(1 / (beta - 1)) * (X_t2**(beta - 1))
 
     if beta < 1:
         neg_back[:, 2:] = np.abs(1 / (beta - 1)) * (X_t2**(beta - 1))
-        pos_back[:, 2:] = np.abs(1 / (beta - 1)) * (A.dot(X_t1)**(beta - 1))
+        pos_back[:, 2:] = np.abs(1 / (beta - 1)) * (AXBU**(beta - 1))
 
     if beta == 1:
-        neg_back[:, 2:] = np.log(A.dot(X_t1))
+        neg_back[:, 2:] = np.log(AXBU)
         pos_back[:, 2:] = np.log(X_t2)
 
     return (neg_back + neg_forw), (pos_back + pos_forw)
