@@ -6,7 +6,7 @@ Cost optimization uses a majorization-minimization algorithm with
 conditionally-weighted multiplicative updates.
 
 Author: Ankit N. Khambhati <akhambhati@gmail.com>
-Last Updated: 2018/12/28
+Last Updated: 2018/12/30
 """
 
 import numpy as np
@@ -29,9 +29,10 @@ def init_model(
                   'init': 'rand'},
         LDS_dict={'axis': 0,
                   'beta': 2,
-                  'lags': 1,
+                  'lag_state': 1,
+                  'lag_exog': 1,
                   'init': 'rand'},
-        input_signal=None,
+        exog_input=None,
         random_state=None):
     """
     Initialize a FitModel object with parameters for NN-LDS.
@@ -82,11 +83,14 @@ def init_model(
                 If 2: Euclidean Distance
                 Else: Parameterized version
 
-            lags: int, Lag-order corresponding to system memory.
+            lag_state: int, Lag-order corresponding to memory of state-transition.
 
-        input_signal: np.ndarray, shape: [t, p]
-            If LDS_dict is used, then input_signal specifies the
+            lag_exog: int, Lag-order corresponding to memory of control-input.
+
+        exog_input: np.ndarray, shape: [t, p]
+            If LDS_dict is used, then exog_input specifies the
             p-dimensional input signal, or control input, over time t.
+            Must match the length of the observed axis.
 
         random_state: integer, RandomState instance or None
             If integer, specifies seed used by the random number generator;
@@ -121,14 +125,14 @@ def init_model(
                 or (type(LDS_dict['axis']) != int)):
             raise Exception('LDS constraint specified to non-existing mode.')
 
-        if (LDS_dict['lags'] < 0):
+        if (LDS_dict['lag_state'] < 0) or (LDS_dict['lag_exog'] < 0):
             raise Exception('LDS lag-order must be greater than 0.')
 
-        if type(input_signal) != np.ndarray:
-            raise Exception('LDS input signal must be a numpy array')
+        if type(exog_input) != np.ndarray:
+            raise Exception('LDS exogenous input must be a numpy array')
 
-        if X.shape[LDS_dict['axis']] != input_signal.shape[0]:
-            raise Exception('Length of input signal does not match length of ' +
+        if X.shape[LDS_dict['axis']] != exog_input.shape[0]:
+            raise Exception('Length of exogenous input does not match length of ' +
                     'data tensor.')
 
     # Initialize model arrays/tensors.
@@ -137,14 +141,14 @@ def init_model(
     NTF_dict['W'] = W
 
     if LDS_dict is not None:
-        A = LDS(
-            optim_utils._get_initial_statematr(
-                LDS_dict['init'], LDS_dict['lags'], rank, random_state))
-        LDS_dict['A'] = A
+        A = optim_utils._get_initial_statematr(
+                LDS_dict['init'], LDS_dict['lag_state'], rank, random_state)
 
         B = optim_utils._get_initial_controlmatr(
-                LDS_dict['init'], rank, input_signal.shape[1], random_state)
-        LDS_dict['B'] = B
+                LDS_dict['init'], LDS_dict['lag_exog'], rank,
+                exog_input.shape[1], random_state)
+
+        LDS_dict['AB'] = LDS(A,B)
 
     model = optim_utils.FitModel(model_param={
         'rank': rank,
@@ -159,7 +163,7 @@ def init_model(
 def model_update(
         X,
         model,
-        input_signal=None,
+        exog_input=None,
         fixed_axes=[],
         fit_dict={
             'method': '{}-Divergence'.format(u'\u03B2'),
@@ -182,8 +186,8 @@ def model_update(
         model : FitModel object
             Model that was created using the init_model function.
 
-        input_signal: np.ndarray, shape: [t, p]
-            If LDS_dict is used, then input_signal specifies the
+        exog_input: np.ndarray, shape: [t, p]
+            If LDS_dict is used, then exogeneous input specifies the
             p-dimensional input signal, or control input, over time t.
 
         fixed_axes: None, int, or list[int]
@@ -222,6 +226,14 @@ def model_update(
     if X.shape != model.model_param['NTF']['W'].shape:
         raise Exception('Shape of input X does not match shape expected by ' +
                         'initialized model.')
+    if exog_input is not None:
+        if exog_input.shape[0] != X.shape[model.model_param['LDS']['axis']]:
+            raise Exception('Length of exogeneous input does not match length of ' +
+                    'data tensor.')
+
+        if exog_input.shape[1] == model.model_param['LDS']['AB'].B.shape[-1]:
+            raise Exception('Shape of input signal does not match shape of ' +
+                    'control-input matrix.')
 
     # Check fixed axes
     if type(fixed_axes) is not list:
@@ -285,18 +297,29 @@ def model_update(
             # v) Compute gradient for the dynamical model
             if (flag_lds):
                 if n == mp['LDS']['axis']:
-                    mp['LDS']['A'].as_ord_1()
-                    WL = mp['LDS']['A'].conv_X_to_lagged(W[n].T)
+                    mp['LDS']['AB'].as_ord_1()
 
-                    neg1, pos1 = calc_time_grad(mp['LDS']['A'].A, WL,
-                                                mp['LDS']['beta'])
-                    neg1 = mp['LDS']['A'].conv_X_to_unlagged(neg1)
-                    pos1 = mp['LDS']['A'].conv_X_to_unlagged(pos1)
+                    # Update H
+                    WL = mp['LDS']['AB'].conv_state_to_lagged(W[n].T)
+                    UL = mp['LDS']['AB'].conv_exog_to_lagged(exog_input.T)
+
+                    lag_diff = mp['LDS']['AB'].lag_state - mp['LDS']['AB'].lag_exog
+                    if lag_diff > 0:
+                        UL = UL[:, int(np.abs(lag_diff)):]
+                    elif lag_diff < 0:
+                        WL = WL[:, int(np.abs(lag_diff)):]
+
+                    neg1, pos1 = calc_time_grad(
+                            mp['LDS']['AB'].A, WL,
+                            mp['LDS']['AB'].B, UL,
+                            mp['LDS']['beta'])
+                    neg1 = mp['LDS']['AB'].conv_state_to_unlagged(neg1)
+                    pos1 = mp['LDS']['AB'].conv_state_to_unlagged(pos1)
 
                     neg += neg1.T
                     pos += pos1.T
 
-                    mp['LDS']['A'].as_ord_p()
+                    mp['LDS']['AB'].as_ord_p()
 
             # vi) Update the observational component weights
             W[n] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
@@ -304,18 +327,36 @@ def model_update(
             # vii) Update the dynamical state weights
             if (flag_lds):
                 if n == mp['LDS']['axis']:
-                    mp['LDS']['A'].as_ord_1()
-                    WL = mp['LDS']['A'].conv_X_to_lagged(W[n].T)
+                    mp['LDS']['AB'].as_ord_1()
 
-                    kr = khatri_rao([WL[:, :-1].T])
-                    Xn = WL[:, 1:]
-                    p = mp['LDS']['A'].A.dot(kr.T)
-                    neg, pos = calc_div_grad(Xn, p, kr, mp['LDS']['beta'])
+                    # Update A/B
+                    WL = mp['LDS']['AB'].conv_state_to_lagged(W[n].T)
+                    UL = mp['LDS']['AB'].conv_exog_to_lagged(exog_input.T)
 
-                    mp['LDS']['A'].A *= \
+                    lag_diff = mp['LDS']['AB'].lag_state - mp['LDS']['AB'].lag_exog
+                    if lag_diff > 0:
+                        UL = UL[:, int(np.abs(lag_diff)):]
+                    elif lag_diff < 0:
+                        WL = WL[:, int(np.abs(lag_diff)):]
+
+                    AX = mp['LDS']['AB'].A.dot(WL[:, :-1])
+                    BU = mp['LDS']['AB'].B.dot(UL[:, :-1])
+
+                    # Update A
+                    neg, pos = calc_div_grad(
+                            WL[:, 1:], AX+BU, WL[:, :-1].T, mp['LDS']['beta'])
+
+                    mp['LDS']['AB'].A *= \
                             (neg / pos)**mm_gamma_func(mp['LDS']['beta'])
 
-                    mp['LDS']['A'].as_ord_p()
+                    # Update B
+                    neg, pos = calc_div_grad(
+                            WL[:, 1:], AX+BU, UL[:, :-1].T, mp['LDS']['beta'])
+
+                    mp['LDS']['AB'].B *= \
+                            (neg / pos)**mm_gamma_func(mp['LDS']['beta'])
+
+                    mp['LDS']['AB'].as_ord_p()
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # Update the optimization model, checks for convergence.
@@ -337,9 +378,9 @@ def model_update(
 
         # Cost of the dynamical model
         if (flag_lds):
-            mp['LDS']['A'].as_ord_1()
-            WL = mp['LDS']['A'].conv_X_to_lagged(W[mp['LDS']['axis']].T)
-            cost_var = calc_cost(WL[:, 1:], mp['LDS']['A'].A.dot(WL[:, :-1]),
+            mp['LDS']['AB'].as_ord_1()
+            WL = mp['LDS']['AB'].conv_state_to_lagged(W[mp['LDS']['axis']].T)
+            cost_var = calc_cost(WL[:, 1:], mp['LDS']['AB'].A.dot(WL[:, :-1]),
                                  mp['LDS']['beta'])
             mp['LDS']['A'].as_ord_p()
         else:
