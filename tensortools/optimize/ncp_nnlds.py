@@ -379,8 +379,8 @@ def model_update(
 
 def model_forecast(
         X,
-        model,
         exog_input,
+        model,
         fit_dict={
             'method': '{}-Divergence'.format(u'\u03B2'),
             'tol': 1e-5,
@@ -516,20 +516,21 @@ def model_forecast(
     Wn = list(W[ax_t])
     Un = list(exog_input)
     for p in range(forecast_steps):
-        W_ix = range(len(Wn) - 1, len(Wn) - 1 - dAB.lag_state)
-        U_ix = range(len(Wn) - 1, len(Wn) - 1 - dAB.lag_exog)
+        W_ix = range(len(Wn) - 1, len(Wn) - 1 - dAB.lag_state, -1)
+        U_ix = range(len(Wn) - 1, len(Wn) - 1 - dAB.lag_exog, -1)
 
         AX = np.array([
             dAB.A[ii, :, :].dot(Wn[ij].reshape(-1, 1))
             for ii, ij in enumerate(W_ix)
-        ]).sum(axis=0)
+            ])[:, :, 0].sum(axis=0)
         BU = np.array([
             dAB.B[ii, :, :].dot(Un[ij].reshape(-1, 1))
             for ii, ij in enumerate(U_ix)
-        ]).sum(axis=0)
+            ])[:, :, 0].sum(axis=0)
 
         Wn.append(AX + BU)
     Wn = np.array(Wn)
+    Wn = Wn[-forecast_steps:, :]
 
     # Re-mix forecasted state mode coefs through NTF
     XP = KTensor([W[j] if j != ax_t else Wn for j in range(X.ndim)])
