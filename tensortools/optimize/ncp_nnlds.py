@@ -6,10 +6,11 @@ Cost optimization uses a majorization-minimization algorithm with
 conditionally-weighted multiplicative updates.
 
 Author: Ankit N. Khambhati <akhambhati@gmail.com>
-Last Updated: 2018/12/30
+Last Updated: 2018/01/02
 """
 
 import numpy as np
+
 from tensortools.dynamics import LDS
 from tensortools.operations import khatri_rao, unfold
 from tensortools.tensors import KTensor
@@ -27,11 +28,13 @@ def init_model(
                   'l1_ratio': 0.5,
                   'alpha': 1e-6,
                   'init': 'rand'},
-        LDS_dict={'axis': 0,
-                  'beta': 2,
-                  'lag_state': 1,
-                  'lag_exog': 1,
-                  'init': 'rand'},
+        LDS_dict={
+            'axis': 0,
+            'beta': 2,
+            'lag_state': 1,
+            'lag_exog': 1,
+            'init': 'rand'
+        },
         exog_input=None,
         random_state=None):
     """
@@ -132,8 +135,9 @@ def init_model(
             raise Exception('LDS exogenous input must be a numpy array')
 
         if X.shape[LDS_dict['axis']] != exog_input.shape[0]:
-            raise Exception('Length of exogenous input does not match length of ' +
-                    'data tensor.')
+            raise Exception(
+                'Length of exogenous input does not match length of ' +
+                'data tensor.')
 
     # Initialize model arrays/tensors.
     W, _ = optim_utils._get_initial_ktensor(NTF_dict['init'], X, rank,
@@ -142,13 +146,13 @@ def init_model(
 
     if LDS_dict is not None:
         A = optim_utils._get_initial_statematr(
-                LDS_dict['init'], LDS_dict['lag_state'], rank, random_state)
+            LDS_dict['init'], LDS_dict['lag_state'], rank, random_state)
 
         B = optim_utils._get_initial_controlmatr(
-                LDS_dict['init'], LDS_dict['lag_exog'], rank,
-                exog_input.shape[1], random_state)
+            LDS_dict['init'], LDS_dict['lag_exog'], rank, exog_input.shape[1],
+            random_state)
 
-        LDS_dict['AB'] = LDS(A,B)
+        LDS_dict['AB'] = LDS(A, B)
 
     model = optim_utils.FitModel(model_param={
         'rank': rank,
@@ -228,12 +232,13 @@ def model_update(
                         'initialized model.')
     if exog_input is not None:
         if exog_input.shape[0] != X.shape[model.model_param['LDS']['axis']]:
-            raise Exception('Length of exogeneous input does not match length of ' +
-                    'data tensor.')
+            raise Exception(
+                'Length of exogeneous input does not match length of ' +
+                'data tensor.')
 
-        if exog_input.shape[1] == model.model_param['LDS']['AB'].B.shape[-1]:
+        if exog_input.shape[1] != model.model_param['LDS']['AB'].B.shape[-1]:
             raise Exception('Shape of input signal does not match shape of ' +
-                    'control-input matrix.')
+                            'control-input matrix.')
 
     # Check fixed axes
     if type(fixed_axes) is not list:
@@ -309,10 +314,9 @@ def model_update(
                     elif lag_diff < 0:
                         WL = WL[:, int(np.abs(lag_diff)):]
 
-                    neg1, pos1 = calc_time_grad(
-                            mp['LDS']['AB'].A, WL,
-                            mp['LDS']['AB'].B, UL,
-                            mp['LDS']['beta'])
+                    neg1, pos1 = calc_time_grad(mp['LDS']['AB'].A, WL,
+                                                mp['LDS']['AB'].B, UL,
+                                                mp['LDS']['beta'])
                     neg1 = mp['LDS']['AB'].conv_state_to_unlagged(neg1)
                     pos1 = mp['LDS']['AB'].conv_state_to_unlagged(pos1)
 
@@ -343,15 +347,15 @@ def model_update(
                     BU = mp['LDS']['AB'].B.dot(UL[:, :-1])
 
                     # Update A
-                    neg, pos = calc_div_grad(
-                            WL[:, 1:], AX+BU, WL[:, :-1].T, mp['LDS']['beta'])
+                    neg, pos = calc_div_grad(WL[:, 1:], AX + BU, WL[:, :-1].T,
+                                             mp['LDS']['beta'])
 
                     mp['LDS']['AB'].A *= \
                             (neg / pos)**mm_gamma_func(mp['LDS']['beta'])
 
                     # Update B
-                    neg, pos = calc_div_grad(
-                            WL[:, 1:], AX+BU, UL[:, :-1].T, mp['LDS']['beta'])
+                    neg, pos = calc_div_grad(WL[:, 1:], AX + BU, UL[:, :-1].T,
+                                             mp['LDS']['beta'])
 
                     mp['LDS']['AB'].B *= \
                             (neg / pos)**mm_gamma_func(mp['LDS']['beta'])
@@ -366,28 +370,8 @@ def model_update(
         # Cost of the observation model
         cost_obs = calc_cost(X, W.full(), mp['NTF']['beta'])
 
-        # Cost of the regularization component
-        if (flag_reg):
-            l1 = mp['REG']['l1_ratio'] * \
-                    np.linalg.norm(W[mp['REG']['axis']], 1)
-            l2 = (1 - mp['REG']['l1_ratio']) * \
-                    np.linalg.norm(W[mp['REG']['axis']], 2)
-            cost_reg = np.sum(mp['REG']['alpha'] * (l1 + l2))
-        else:
-            cost_reg = 0
-
-        # Cost of the dynamical model
-        if (flag_lds):
-            mp['LDS']['AB'].as_ord_1()
-            WL = mp['LDS']['AB'].conv_state_to_lagged(W[mp['LDS']['axis']].T)
-            cost_var = calc_cost(WL[:, 1:], mp['LDS']['AB'].A.dot(WL[:, :-1]),
-                                 mp['LDS']['beta'])
-            mp['LDS']['A'].as_ord_p()
-        else:
-            cost_var = 0
-
         # Update the model
-        model.update(cost_obs + cost_reg + cost_var)
+        model.update(cost_obs)
 
     # end optimization loop, return model.
     return model.finalize()
@@ -396,7 +380,7 @@ def model_update(
 def model_forecast(
         X,
         model,
-        forecast_steps,
+        exog_input,
         fit_dict={
             'method': '{}-Divergence'.format(u'\u03B2'),
             'tol': 1e-5,
@@ -417,6 +401,11 @@ def model_forecast(
         model : FitModel object
             Model that was created using the init_model function. The `model`
             must explicitly contain an LDS component.
+
+        exog_input: np.ndarray, shape: [t, p]
+            If LDS_dict is used, then exog_input specifies the
+            p-dimensional input signal, or control input, over time t.
+            Must match the length of the observed axis.
 
         forecast_steps: int
             Number of samples ahead to forecast using each time sample in X
@@ -448,6 +437,15 @@ def model_forecast(
 
     # Check input matrix
     optim_utils._check_cpd_inputs(X, model.model_param['rank'])
+    forecast_steps = (
+        exog_input.shape[0] - X.shape[model.model_param['LDS']['axis']])
+    if forecast_steps <= 0:
+        raise Exception('Length of exogeneous input must be greater than ' +
+                        'length of data tensor in order to forecast.')
+
+    if exog_input.shape[1] != model.model_param['LDS']['AB'].B.shape[-1]:
+        raise Exception('Shape of input signal does not match shape of ' +
+                        'control-input matrix.')
 
     # Update model fit parameters
     model.set_fit_param(**fit_dict)
@@ -457,7 +455,7 @@ def model_forecast(
 
     # Set pointers to commonly used objects
     mp = model.model_param
-    dA = mp['LDS']['A']
+    dAB = mp['LDS']['AB']
     ax_t = mp['LDS']['axis']
 
     # Initialize temporal state coefficients
@@ -513,22 +511,27 @@ def model_forecast(
     model.finalize()
 
     # Use LDS and current temporal state mode to forecast future state mode
-    dA.as_ord_1()
-    WL = dA.conv_X_to_lagged(W[ax_t].T)
+    dAB.as_ord_p()
 
-    WP = []
-    for t in range(forecast_steps):
-        if t == 0:
-            WP.append(dA.A.dot(WL))
-        else:
-            WP.append(dA.A.dot(WP[-1]))
-    WP = np.array([dA.conv_X_to_unlagged(wlp).T for wlp in WP])
+    Wn = list(W[ax_t])
+    Un = list(exog_input)
+    for p in range(forecast_steps):
+        W_ix = range(len(Wn) - 1, len(Wn) - 1 - dAB.lag_state)
+        U_ix = range(len(Wn) - 1, len(Wn) - 1 - dAB.lag_exog)
 
-    dA.as_ord_p()
+        AX = np.array([
+            dAB.A[ii, :, :].dot(Wn[ij].reshape(-1, 1))
+            for ii, ij in enumerate(W_ix)
+        ]).sum(axis=0)
+        BU = np.array([
+            dAB.B[ii, :, :].dot(Un[ij].reshape(-1, 1))
+            for ii, ij in enumerate(U_ix)
+        ]).sum(axis=0)
+
+        Wn.append(AX + BU)
+    Wn = np.array(Wn)
 
     # Re-mix forecasted state mode coefs through NTF
-    XP = [
-        KTensor([W[j] if j != ax_t else w for j in range(X.ndim)]) for w in WP
-    ]
+    XP = KTensor([W[j] if j != ax_t else Wn for j in range(X.ndim)])
 
     return XP
