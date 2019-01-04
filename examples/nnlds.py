@@ -5,78 +5,96 @@ from scipy.stats import pearsonr
 
 # Make synthetic dataset.
 T = 10000
-K = 3
+K_s = 2
+K_e = 1
+lag_state = 4
+lag_exog = 1
 
 # Generate an observation/mixing matrix
-#WW = np.array([[0.5, 0.0, 0.0], [0.5, 0.0, 0.0], [0.0, 1.0, 0.0],
-#               [0.0, 0.0, 0.5], [0.0, 0.0, 0.5]])
-WW = np.random.rand(5, 3)
-print(WW.shape)
+WW = 0.5 * np.eye(K_s)
 
 # Generate a state-transition matrix
-dA = tt.dynamics.LDS(
-    np.array([[0.99, 0.0, 0.0], [0.0, 0.99, 0.0], [0.0, 0.0, 0.99]]))
-#dA = tt.dynamics.LDS(np.random.rand(3, 3))
-dA.schur_stabilize()
-dA.as_ord_1()
+A = np.random.rand(lag_state, K_s, K_s)
+A = np.array([a**(i + 1) for i, a in enumerate(A)])
+B = np.random.rand(lag_exog, K_s, K_e)
+dAB = tt.LDS(A, B)
+dAB.as_ord_1()
+dAB.A /= np.linalg.norm(dAB.A)
+dAB.as_ord_p()
 
-# Propagate dynamical model
-X = []
-HH = [5 * np.abs(np.random.random(size=(K, 1)))]
-for i in range(T):
-    n1 = 0 * np.abs(np.random.rand(WW.shape[0], 1))
-    n2 = 1e-4 * np.abs(np.random.rand(K, 1))
-    X.append(WW.dot(HH[-1]) + n1)
-    HH.append(dA.A.dot(HH[-1]) + n2)
-X = np.array(X)[:, :, 0]
-HH = np.array(HH)[:-1, :, 0]
+# Generate dynamics
+HH = [5 * np.abs(np.random.random((K_s, 1))) for ll in range(lag_state)]
+UU = np.random.binomial(1, p=0.25, size=(K_e, T))
+for i in range(T - len(HH)):
+    H_ix = range(len(HH) - 1, len(HH) - 1 - lag_state, -1)
+    AX = np.array([dAB.A[ii, :, :].dot(HH[ij])
+                   for ii, ij in enumerate(H_ix)]).sum(axis=0)
 
-# Cut-off the transient simulation
-train_ix = slice(1000, 8000)
-test_ix = slice(8000, T)
+    U_ix = range(len(HH) - 1, len(HH) - 1 - lag_exog, -1)
+    BU = np.array([
+        dAB.B[ii, :, :].dot(UU[:, [ij]]) for ii, ij in enumerate(U_ix)
+    ]).sum(axis=0)
+
+    HH.append(AX + BU)
+HH = np.array(HH)[:, :, 0]
+XX = WW.dot(HH.T)
+
+# Train Model
+train_ix = slice(0, int(2 / 3.0 * T))
+test_ix = slice(int(2 / 3.0 * T), T)
 
 # Fit CP tensor decomposition (two times).
 # Initialize model
 model = tt.ncp_nnlds.init_model(
-    X[train_ix, :] / np.linalg.norm(X[train_ix, :]),
-    rank=3,
+    XX.T[train_ix, :],
+    rank=K_s,
     NTF_dict={'beta': 2,
               'init': 'rand'},
-    REG_dict={'axis': 0,
-              'l1_ratio': 0.0,
-              'alpha': 1e0},
-    LDS_dict={'axis': 0,
-              'beta': 2,
-              'lags': 1,
-              'init': 'rand'},
+    LDS_dict={
+        'axis': 0,
+        'beta': 2,
+        'lag_state': lag_state,
+        'lag_exog': lag_exog,
+        'init': 'rand'
+    },
+    exog_input=UU[:, train_ix].T,
     random_state=None)
 
+# Fix W
+model.model_param['NTF']['W'][1] = WW.copy()
+
 model = tt.ncp_nnlds.model_update(
-    X[train_ix, :] / np.linalg.norm(X[train_ix, :]),
+    XX.T[train_ix, :],
     model,
+    exog_input=UU[:, train_ix].T,
+    fixed_axes=[1],
     fit_dict={
         'min_iter': 1,
-        'max_iter': np.inf,
+        'max_iter': 1000,
         'tol': 1e-6,
         'verbose': True
     })
 
 # Map factor to
 map_table = np.corrcoef(HH[train_ix, :].T,
-                        model.model_param['NTF']['W'].factors[0].T)[K:, :K]
+                        model.model_param['NTF']['W'].factors[0].T)[K_s:, :K_s]
 map_fac = np.argmax(map_table, axis=1)
 
 # Generate Plots Evaluating Fit
 plt.figure(figsize=(8, 3), dpi=100)
-for i in range(K):
-    ax = plt.subplot(3, 1, i + 1)
+for i in range(K_s):
+    ax = plt.subplot(K_s, 1, i + 1)
     ax.plot(HH[train_ix, i] / HH[train_ix, i].max(), color='k', linewidth=0.5)
     ax.plot(
         model.model_param['NTF']['W'].factors[0][:, map_fac[i]] /
         model.model_param['NTF']['W'].factors[0][:, map_fac[i]].max(),
-        color='r',
+        color='b',
         linewidth=0.25)
-    ax.legend(['True', 'Fitted'])
+    ax.plot(
+        0.5 * UU[0, train_ix] / UU[0, train_ix].max(),
+        color='r',
+        linewidth=0.1)
+    ax.legend(['True', 'Fitted', 'Stim'])
     ax.set_title(
         pearsonr(model.model_param['NTF']['W'].factors[0][:, map_fac[i]],
                  HH[train_ix, i]))
@@ -84,58 +102,52 @@ plt.show()
 
 # Generate Plots Evaluating Fit
 plt.figure(figsize=(8, 3), dpi=100)
-for i in range(5):
-    ax = plt.subplot(5, 1, i + 1)
-    ax.plot(X[train_ix, i] / X[train_ix, i].max(), color='k', linewidth=0.5)
+for i in range(K_s):
+    ax = plt.subplot(K_s, 1, i + 1)
+    ax.plot(
+        XX.T[train_ix, i] / XX.T[train_ix, i].max(), color='k', linewidth=0.5)
     ax.plot(
         model.model_param['NTF']['W'].full()[:, i] /
         model.model_param['NTF']['W'].full()[:, i].max(),
-        color='r',
+        color='B',
         linewidth=0.25)
-    ax.legend(['True', 'Fitted'])
+    ax.plot(
+        0.5 * UU[0, train_ix] / UU[0, train_ix].max(),
+        color='r',
+        linewidth=0.1)
+    ax.legend(['True', 'Fitted', 'Stim'])
     ax.set_title(
-        pearsonr(model.model_param['NTF']['W'].full()[:, i], X[train_ix, i]))
+        pearsonr(model.model_param['NTF']['W'].full()[:, i],
+                 XX.T[train_ix, i]))
 plt.show()
 
 # Forecast
-XP = tt.ncp_nnlds.model_forecast(
-    X[test_ix, :] / np.linalg.norm(X[train_ix, :]),
-    model,
-    forecast_steps=1,
-    fit_dict={
-        'min_iter': 1,
-        'max_iter': np.inf,
-        'tol': 1e-6,
-        'verbose': False
-    })
-
-# Map factor to
-map_table = np.corrcoef(HH[test_ix, :].T, XP[0].factors[0].T)[K:, :K]
-map_fac = np.argmax(map_table, axis=1)
-
-# Generate Plots Evaluating Fit
-plt.figure(figsize=(8, 3), dpi=100)
-for i in range(K):
-    ax = plt.subplot(3, 1, i + 1)
-    ax.plot(HH[test_ix, i] / HH[test_ix, i].max(), color='k', linewidth=0.5)
-    ax.plot(
-        XP[0].factors[0][:, map_fac[i]] /
-        XP[0].factors[0][:, map_fac[i]].max(),
-        color='r',
-        linewidth=0.25)
-    ax.legend(['True', 'Fitted'])
-    ax.set_title(pearsonr(XP[0].factors[0][:, map_fac[i]], HH[test_ix, i]))
-plt.show()
+XP = []
+for ii in range(test_ix.start, test_ix.stop):
+    XP.append(
+        tt.ncp_nnlds.model_forecast(
+            XX.T[ii - 100:ii, :],
+            UU.T[ii - 100:ii + 1, :],
+            model,
+            fit_dict={
+                'min_iter': 1,
+                'max_iter': 100,
+                'tol': 1e-6,
+                'verbose': False
+            }).full()[0, :])
+XP = np.array(XP)
 
 # Generate Plots Evaluating Fit
 plt.figure(figsize=(8, 3), dpi=100)
-for i in range(5):
-    ax = plt.subplot(5, 1, i + 1)
-    ax.plot(X[test_ix, i] / X[test_ix, i].max(), color='k', linewidth=0.5)
+for i in range(K_s):
+    ax = plt.subplot(K_s, 1, i + 1)
     ax.plot(
-        XP[0].full()[:, i] / XP[0].full()[:, i].max(),
+        XX.T[test_ix, i] / XX.T[test_ix, i].max(), color='k', linewidth=0.5)
+    ax.plot(XP[:, i] / XP[:, i].max(), color='B', linewidth=0.25)
+    ax.plot(
+        0.5 * UU.T[test_ix, 0] / UU.T[test_ix, 0].max(),
         color='r',
-        linewidth=0.25)
-    ax.legend(['True', 'Fitted'])
-    ax.set_title(pearsonr(XP[0].full()[:, i], X[test_ix, i]))
+        linewidth=0.1)
+    ax.legend(['True', 'Fitted', 'Stim'])
+    ax.set_title(pearsonr(XP[:, i], XX.T[test_ix, i]))
 plt.show()
