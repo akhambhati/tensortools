@@ -327,6 +327,10 @@ def model_update(
 
             # vi) Update the observational component weights
             W[n] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
+            if n == mp['LDS']['axis']:
+                W[mp['LDS']['axis']] = (
+                        W[mp['LDS']['axis']].T / np.sum(W[mp['LDS']['axis']], axis=1)).T
+
 
             # vii) Update the dynamical state weights
             if (flag_lds):
