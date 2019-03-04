@@ -271,6 +271,7 @@ def model_update(
     # iii) Update component U_1, U_2, ... U_N
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+    X_unfold = [unfold(X, n) for n in range(X.ndim)]
     while model.still_optimizing:
 
         for n in range(X.ndim):
@@ -284,7 +285,8 @@ def model_update(
 
             # i)  Compute Khatri-Rao product
             kr = khatri_rao(components)
-            Xn = unfold(X, n)
+            #Xn = unfold(X, n)
+            Xn = X_unfold[n]
 
             # ii) Compute unfolded prediction of X
             p = W[n].dot(kr.T)
