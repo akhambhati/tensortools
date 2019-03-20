@@ -10,6 +10,7 @@ Last Updated: 2018/01/02
 """
 
 import numpy as np
+import numba
 
 from tensortools.dynamics import LDS
 from tensortools.operations import khatri_rao, unfold
@@ -44,7 +45,7 @@ def init_model(
     ----------
         X : np.ndarray, tensor_like with shape: [I_1, I_2, ..., I_N]
             Skeletal Tensor containing dimensionality of the system output.
-            Each Tensor fiber, I, is considered a mode of the system. 
+            Each Tensor fiber, I, is considered a mode of the system.
             Example modes are channels, time, trials, spectral frequency, etc.
 
         rank : int
@@ -259,6 +260,7 @@ def model_update(
     # Set pointers to commonly used objects
     mp = model.model_param
     W = mp['NTF']['W']
+    X_unfold = [unfold(X, n) for n in range(X.ndim)]
 
     # Set flags for conditional operations
     flag_lds = True if mp['LDS'] is not None else False
@@ -271,7 +273,6 @@ def model_update(
     # iii) Update component U_1, U_2, ... U_N
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    X_unfold = [unfold(X, n) for n in range(X.ndim)]
     while model.still_optimizing:
 
         for n in range(X.ndim):
@@ -281,17 +282,15 @@ def model_update(
                 continue
 
             # Select all components, but U_n
-            components = [W[j] for j in range(X.ndim) if j != n]
 
             # i)  Compute Khatri-Rao product
-            kr = khatri_rao(components)
-            #Xn = unfold(X, n)
-            Xn = X_unfold[n]
+            kr = khatri_rao([W[j] for j in range(W.ndim) if j != n])
 
             # ii) Compute unfolded prediction of X
             p = W[n].dot(kr.T)
 
             # iii) Compute gradient for the observation model
+            Xn = X_unfold[n]
             neg, pos = calc_div_grad(Xn, p, kr, mp['NTF']['beta'])
 
             # iv) Add a regularizer
@@ -329,6 +328,8 @@ def model_update(
 
             # vi) Update the observational component weights
             W[n] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
+
+            # Constrain the LDS mode to be a probability vector
             if n == mp['LDS']['axis']:
                 W[mp['LDS']['axis']] = (
                         W[mp['LDS']['axis']].T / np.sum(W[mp['LDS']['axis']], axis=1)).T
@@ -463,6 +464,7 @@ def model_forecast(
     mp = model.model_param
     dAB = mp['LDS']['AB']
     ax_t = mp['LDS']['axis']
+    Xn = unfold(X, ax_t)
 
     # Initialize temporal state coefficients
     assert model.model_param['NTF']['init'] in ['rand', 'randn']
@@ -486,11 +488,8 @@ def model_forecast(
     while model.still_optimizing:
 
         # Select all components, but U_n
-        components = [W[j] for j in range(X.ndim) if j != ax_t]
-
         # i)  Compute Khatri-Rao product
-        kr = khatri_rao(components)
-        Xn = unfold(X, ax_t)
+        kr = khatri_rao([W[j] for j in range(X.ndim) if j != ax_t])
 
         # ii) Compute unfolded prediction of X
         p = W[ax_t].dot(kr.T)
