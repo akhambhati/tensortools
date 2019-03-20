@@ -55,6 +55,7 @@ ext_modules = []
 install_requires = [
     'numpy',
     'scipy',
+    'numba',
     'tqdm',
     'munkres',
 ]
