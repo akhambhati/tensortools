@@ -10,7 +10,6 @@ Last Updated: 2018/01/02
 """
 
 import numpy as np
-import numba
 
 from tensortools.dynamics import LDS
 from tensortools.operations import khatri_rao, unfold
