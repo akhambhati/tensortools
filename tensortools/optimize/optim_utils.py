@@ -201,7 +201,7 @@ class FitModel(object):
             p_args = (self.fit_param['method'], self.status['iterations'],
                       self.status['obj'], self.status['improvement'])
             s = '{}: iteration {}, objective {}, improvement {}.'
-            print(s.format(*p_args))
+            print(s.format(*p_args), flush=True)
 
     def finalize(self):
 
@@ -212,7 +212,7 @@ class FitModel(object):
             s = 'Converged after {} iterations, {} seconds. Objective: {}.'
             print(
                 s.format(self.status['iterations'], self.status['total_time'],
-                         self.status['obj']))
+                         self.status['obj']), flush=True)
 
         return self
 
