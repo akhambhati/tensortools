@@ -174,6 +174,7 @@ def model_update(
             'tol': 1e-5,
             'min_iter': 1,
             'max_iter': 500,
+            'LDS_iter': 0,
             'verbose': True
         }):
     """
@@ -330,7 +331,8 @@ def model_update(
 
             # vii) Update the dynamical state weights
             if (flag_lds):
-                if n == mp['LDS']['axis']:
+                if ((n == mp['LDS']['axis']) & 
+                    (model.status['iterations'] >= model.fit_param['LDS_iter'])):
                     mp['LDS']['AB'].as_ord_1()
 
                     # Update A/B
