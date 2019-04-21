@@ -222,6 +222,7 @@ class FitModel(object):
                       verbose=True,
                       max_iter=500,
                       min_iter=1,
+                      LDS_iter=0,
                       max_time=np.inf):
         """Set the parameters of the model fitting.
 
@@ -245,6 +246,7 @@ class FitModel(object):
         self.fit_param['verbose'] = verbose
         self.fit_param['max_iter'] = max_iter
         self.fit_param['min_iter'] = min_iter
+        self.fit_param['LDS_iter'] = LDS_iter
         self.fit_param['max_time'] = max_time
 
     def reset_status(self):
