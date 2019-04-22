@@ -329,6 +329,11 @@ def model_update(
             # vi) Update the observational component weights
             W[n] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
 
+            # vib) Convert to probability vectors if using LDS formulation
+            if (flag_lds):
+                if n == mp['LDS']['axis']:
+                    W[n] = (W[n].T / W[n].sum(axis=-1)).T
+
             # vii) Update the dynamical state weights
             if (flag_lds):
                 if ((n == mp['LDS']['axis']) & 
