@@ -331,8 +331,9 @@ def model_update(
 
             # vib) Convert to probability vectors if using LDS formulation
             if (flag_lds):
-                if n == mp['LDS']['axis']:
-                    W[n] = (W[n].T / W[n].sum(axis=-1)).T
+                W[mp['LDS']['axis']] = (W[mp['LDS']['axis']].T /
+                        W[mp['LDS']['axis']].sum(axis=-1)).T
+                W[2] /= W[2].sum(axis=0)
 
             # vii) Update the dynamical state weights
             if (flag_lds):
