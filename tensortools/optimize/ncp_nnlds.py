@@ -447,9 +447,9 @@ def model_forecast(
     optim_utils._check_cpd_inputs(X, model.model_param['rank'])
     forecast_steps = (
         exog_input.shape[0] - X.shape[model.model_param['LDS']['axis']])
-    if forecast_steps <= 0:
-        raise Exception('Length of exogeneous input must be greater than ' +
-                        'length of data tensor in order to forecast.')
+    if forecast_steps < 0:
+        raise Exception('Length of exogeneous input must be geq than ' +
+                        'length of data tensor in order to filter/forecast.')
 
     if exog_input.shape[1] != model.model_param['LDS']['AB'].B.shape[-1]:
         raise Exception('Shape of input signal does not match shape of ' +
@@ -486,6 +486,9 @@ def model_forecast(
     # iii) Update component U_1, U_2, ... U_N
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+    if forecast_steps > 0:
+        Ufilter = exog_input[:-forecast_steps]
+
     while model.still_optimizing:
 
         # Select all components, but U_n
@@ -497,6 +500,29 @@ def model_forecast(
 
         # iii) Compute gradient for the observation model
         neg, pos = calc_div_grad(Xn, p, kr, mp['NTF']['beta'])
+
+        # iv) Compute gradient for the dynamical model
+        mp['LDS']['AB'].as_ord_1()
+
+        WL = mp['LDS']['AB'].conv_state_to_lagged(W[ax_t].T)
+        UL = mp['LDS']['AB'].conv_exog_to_lagged(Ufilter.T)
+
+        lag_diff = mp['LDS']['AB'].lag_state - mp['LDS']['AB'].lag_exog
+        if lag_diff > 0:
+            UL = UL[:, int(np.abs(lag_diff)):]
+        elif lag_diff < 0:
+            WL = WL[:, int(np.abs(lag_diff)):]
+
+        neg1, pos1 = calc_time_grad(mp['LDS']['AB'].A, WL,
+                                    mp['LDS']['AB'].B, UL,
+                                    mp['LDS']['beta'])
+        neg1 = mp['LDS']['AB'].conv_state_to_unlagged(neg1)
+        pos1 = mp['LDS']['AB'].conv_state_to_unlagged(pos1)
+
+        neg += neg1.T
+        pos += pos1.T
+
+        mp['LDS']['AB'].as_ord_p()
 
         # vi) Update the observational component weights
         W[ax_t] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
