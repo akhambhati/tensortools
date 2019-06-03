@@ -273,7 +273,6 @@ def model_update(
     # iii) Update component U_1, U_2, ... U_N
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    lam = np.ones(mp['rank'])
     while model.still_optimizing:
 
         for n in range(X.ndim):
@@ -328,18 +327,14 @@ def model_update(
                     mp['LDS']['AB'].as_ord_p()
 
             # vi) Update the observational component weights
+            W[n] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
+
             # vib) Convert to probability vectors if using LDS formulation
             if (flag_lds):
-                if n != mp['LDS']['axis']:
-                    W[n] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
-                    l1 = np.linalg.norm(W[n], axis=0, ord=1)
-                    W[n] /= l1
-                else:
-                    l1 = np.linalg.norm(W[n], axis=1, ord=1)
-                    #print(n, l1)
-                    #W[n] = (W[n].T / l1).T
-            else:
-                W[n] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
+                W[mp['LDS']['axis']] = (W[mp['LDS']['axis']].T /
+                        W[mp['LDS']['axis']].sum(axis=-1)).T
+
+                W[2] /= W[2].sum(axis=0)
 
             # vii) Update the dynamical state weights
             if (flag_lds):
@@ -536,6 +531,7 @@ def model_forecast(
         # vii) Constrain the solution to sum to one over components per time point
         W[mp['LDS']['axis']] = (W[mp['LDS']['axis']].T /
                 W[mp['LDS']['axis']].sum(axis=-1)).T
+
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # Update the optimization model, checks for convergence.
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
