@@ -11,9 +11,7 @@ Last Updated: 2018/11/06
 """
 
 import numpy as np
-import numba
 
-@numba.jit(nopython=True)
 def calc_cost(x, x_h, beta):
     """
     Compute the beta divergence between two matrices for a given beta.
@@ -66,7 +64,6 @@ def mm_gamma_func(beta):
         return 1 / (beta - 1)
 
 
-@numba.jit(nopython=True)
 def calc_div_grad(x, x_h, kr, beta):
     """
     Compute the positive and negative gradient components for the
@@ -96,13 +93,17 @@ def calc_div_grad(x, x_h, kr, beta):
             Positive gradient component
     """
 
-    neg = (x_h**(beta - 2) * x).dot(kr)
-    pos = (x_h**(beta - 1)).dot(kr)
+    neg_inv = x_h**(beta - 2)
+    neg_inv[~np.isfinite(neg_inv)] = 0
+    neg = (neg_inv * x).dot(kr)
+
+    pos_inv = x_h**(beta - 1)
+    pos_inv[~np.isfinite(pos_inv)] = 0
+    pos = (pos_inv).dot(kr)
 
     return neg, pos
 
 
-@numba.jit(nopython=True)
 def calc_time_grad(A, X_t, B, U_t, beta):
     """
     Compute the positive and negative gradient components for updating
