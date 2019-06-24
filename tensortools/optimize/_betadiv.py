@@ -159,18 +159,34 @@ def calc_time_grad(A, X_t, B, U_t, beta):
 
     # Compute the forward gradients (t --> t+1)
     AXBU = A.dot(X_t0) + B.dot(U_t0)
-    neg_forw[:, :-2] = A.T.dot(AXBU**(beta - 2)) * X_t1
-    pos_forw[:, :-2] = A.T.dot(AXBU**(beta - 1))
+
+    neg_inv = AXBU**(beta - 2)
+    neg_inv[~np.isfinite(neg_inv)] = 0
+    neg_forw[:, :-2] = A.T.dot(neg_inv) * X_t1
+
+    pos_inv = AXBU**(beta - 1)
+    pos_inv[~np.isfinite(pos_inv)] = 0
+    pos_forw[:, :-2] = A.T.dot(pos_inv)
 
     # Compute the reverse gradients (t-1 --> t)
     AXBU = A.dot(X_t1) + B.dot(U_t1)
     if beta > 1:
-        neg_back[:, 2:] = np.abs(1 / (beta - 1)) * (AXBU**(beta - 1))
-        pos_back[:, 2:] = np.abs(1 / (beta - 1)) * (X_t2**(beta - 1))
+        neg_inv = AXBU**(beta - 1)
+        neg_inv[~np.isfinite(neg_inv)] = 0
+        neg_back[:, 2:] = np.abs(1 / (beta - 1)) * (neg_inv)
+
+        pos_inv = X_t2**(beta - 1)
+        pos_inv[~np.isfinite(pos_inv)] = 0
+        pos_back[:, 2:] = np.abs(1 / (beta - 1)) * (pos_inv)
 
     if beta < 1:
-        neg_back[:, 2:] = np.abs(1 / (beta - 1)) * (X_t2**(beta - 1))
-        pos_back[:, 2:] = np.abs(1 / (beta - 1)) * (AXBU**(beta - 1))
+        neg_inv = X_t2**(beta - 1)
+        neg_inv[~np.isfinite(neg_inv)] = 0
+        neg_back[:, 2:] = np.abs(1 / (beta - 1)) * (neg_inv)
+
+        pos_inv = AXBU**(beta - 1)
+        pos_inv[~np.isfinite(pos_inv)] = 0
+        pos_back[:, 2:] = np.abs(1 / (beta - 1)) * (pos_inv)
 
     if beta == 1:
         neg_back[:, 2:] = np.log(AXBU)
