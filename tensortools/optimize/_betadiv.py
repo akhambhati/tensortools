@@ -11,9 +11,7 @@ Last Updated: 2018/11/06
 """
 
 import numpy as np
-import numba
 
-@numba.jit(nopython=True)
 def calc_cost(x, x_h, beta):
     """
     Compute the beta divergence between two matrices for a given beta.
@@ -66,7 +64,6 @@ def mm_gamma_func(beta):
         return 1 / (beta - 1)
 
 
-@numba.jit(nopython=True)
 def calc_div_grad(x, x_h, kr, beta):
     """
     Compute the positive and negative gradient components for the
@@ -96,13 +93,17 @@ def calc_div_grad(x, x_h, kr, beta):
             Positive gradient component
     """
 
-    neg = (x_h**(beta - 2) * x).dot(kr)
-    pos = (x_h**(beta - 1)).dot(kr)
+    neg_inv = x_h**(beta - 2)
+    neg_inv[~np.isfinite(neg_inv)] = 0
+    neg = (neg_inv * x).dot(kr)
+
+    pos_inv = x_h**(beta - 1)
+    pos_inv[~np.isfinite(pos_inv)] = 0
+    pos = (pos_inv).dot(kr)
 
     return neg, pos
 
 
-@numba.jit(nopython=True)
 def calc_time_grad(A, X_t, B, U_t, beta):
     """
     Compute the positive and negative gradient components for updating
@@ -158,18 +159,34 @@ def calc_time_grad(A, X_t, B, U_t, beta):
 
     # Compute the forward gradients (t --> t+1)
     AXBU = A.dot(X_t0) + B.dot(U_t0)
-    neg_forw[:, :-2] = A.T.dot(AXBU**(beta - 2)) * X_t1
-    pos_forw[:, :-2] = A.T.dot(AXBU**(beta - 1))
+
+    neg_inv = AXBU**(beta - 2)
+    neg_inv[~np.isfinite(neg_inv)] = 0
+    neg_forw[:, :-2] = A.T.dot(neg_inv) * X_t1
+
+    pos_inv = AXBU**(beta - 1)
+    pos_inv[~np.isfinite(pos_inv)] = 0
+    pos_forw[:, :-2] = A.T.dot(pos_inv)
 
     # Compute the reverse gradients (t-1 --> t)
     AXBU = A.dot(X_t1) + B.dot(U_t1)
     if beta > 1:
-        neg_back[:, 2:] = np.abs(1 / (beta - 1)) * (AXBU**(beta - 1))
-        pos_back[:, 2:] = np.abs(1 / (beta - 1)) * (X_t2**(beta - 1))
+        neg_inv = AXBU**(beta - 1)
+        neg_inv[~np.isfinite(neg_inv)] = 0
+        neg_back[:, 2:] = np.abs(1 / (beta - 1)) * (neg_inv)
+
+        pos_inv = X_t2**(beta - 1)
+        pos_inv[~np.isfinite(pos_inv)] = 0
+        pos_back[:, 2:] = np.abs(1 / (beta - 1)) * (pos_inv)
 
     if beta < 1:
-        neg_back[:, 2:] = np.abs(1 / (beta - 1)) * (X_t2**(beta - 1))
-        pos_back[:, 2:] = np.abs(1 / (beta - 1)) * (AXBU**(beta - 1))
+        neg_inv = X_t2**(beta - 1)
+        neg_inv[~np.isfinite(neg_inv)] = 0
+        neg_back[:, 2:] = np.abs(1 / (beta - 1)) * (neg_inv)
+
+        pos_inv = AXBU**(beta - 1)
+        pos_inv[~np.isfinite(pos_inv)] = 0
+        pos_back[:, 2:] = np.abs(1 / (beta - 1)) * (pos_inv)
 
     if beta == 1:
         neg_back[:, 2:] = np.log(AXBU)

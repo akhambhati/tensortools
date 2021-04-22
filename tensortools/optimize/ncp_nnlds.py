@@ -167,6 +167,7 @@ def init_model(
 def model_update(
         X,
         model,
+        mask=None,
         exog_input=None,
         fixed_axes=[],
         fit_dict={
@@ -231,6 +232,13 @@ def model_update(
     if X.shape != model.model_param['NTF']['W'].shape:
         raise Exception('Shape of input X does not match shape expected by ' +
                         'initialized model.')
+    if mask is not None:
+        if mask.shape != X.shape:
+            raise Exception(
+                'Size of mask array does not match size of data tensor.')
+    else:
+        mask = np.ones_like(X)
+
     if exog_input is not None:
         if exog_input.shape[0] != X.shape[model.model_param['LDS']['axis']]:
             raise Exception(
@@ -261,6 +269,7 @@ def model_update(
     mp = model.model_param
     W = mp['NTF']['W']
     X_unfold = [unfold(X, n) for n in range(X.ndim)]
+    M_unfold = [unfold(mask, n) for n in range(mask.ndim)]
 
     # Set flags for conditional operations
     flag_lds = True if mp['LDS'] is not None else False
@@ -291,7 +300,8 @@ def model_update(
 
             # iii) Compute gradient for the observation model
             Xn = X_unfold[n]
-            neg, pos = calc_div_grad(Xn, p, kr, mp['NTF']['beta'])
+            Mn = M_unfold[n]
+            neg, pos = calc_div_grad(Xn*Mn, p*Mn, kr, mp['NTF']['beta'])
 
             # iv) Add a regularizer
             if (flag_reg):
@@ -305,18 +315,27 @@ def model_update(
                 if n == mp['LDS']['axis']:
                     mp['LDS']['AB'].as_ord_1()
 
+                    Mlag = Mn.all(axis=-1).reshape(-1,1)
+
                     # Update H
                     WL = mp['LDS']['AB'].conv_state_to_lagged(W[n].T)
                     UL = mp['LDS']['AB'].conv_exog_to_lagged(exog_input.T)
 
+                    MWL = mp['LDS']['AB'].conv_state_to_lagged(
+                            np.repeat(Mlag, mp['LDS']['AB'].rank_state, axis=1).T)
+                    MUL = mp['LDS']['AB'].conv_exog_to_lagged(
+                            np.repeat(Mlag, mp['LDS']['AB'].rank_exog, axis=1).T)
+
                     lag_diff = mp['LDS']['AB'].lag_state - mp['LDS']['AB'].lag_exog
                     if lag_diff > 0:
                         UL = UL[:, int(np.abs(lag_diff)):]
+                        MUL = MUL[:, int(np.abs(lag_diff)):]
                     elif lag_diff < 0:
                         WL = WL[:, int(np.abs(lag_diff)):]
+                        MWL = MWL[:, int(np.abs(lag_diff)):]
 
-                    neg1, pos1 = calc_time_grad(mp['LDS']['AB'].A, WL,
-                                                mp['LDS']['AB'].B, UL,
+                    neg1, pos1 = calc_time_grad(mp['LDS']['AB'].A, WL*MWL,
+                                                mp['LDS']['AB'].B, UL*MUL,
                                                 mp['LDS']['beta'])
                     neg1 = mp['LDS']['AB'].conv_state_to_unlagged(neg1)
                     pos1 = mp['LDS']['AB'].conv_state_to_unlagged(pos1)
@@ -328,6 +347,7 @@ def model_update(
 
             # vi) Update the observational component weights
             W[n] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
+            W[n][~np.isfinite(W[n])] = 0
 
             # vii) Update the dynamical state weights
             if (flag_lds):
@@ -335,32 +355,47 @@ def model_update(
                     (model.status['iterations'] >= model.fit_param['LDS_iter'])):
                     mp['LDS']['AB'].as_ord_1()
 
+                    Mlag = Mn.all(axis=-1).reshape(-1,1)
+
                     # Update A/B
                     WL = mp['LDS']['AB'].conv_state_to_lagged(W[n].T)
                     UL = mp['LDS']['AB'].conv_exog_to_lagged(exog_input.T)
 
+                    MWL = mp['LDS']['AB'].conv_state_to_lagged(
+                            np.repeat(Mlag, mp['LDS']['AB'].rank_state, axis=1).T)
+                    MUL = mp['LDS']['AB'].conv_exog_to_lagged(
+                            np.repeat(Mlag, mp['LDS']['AB'].rank_exog, axis=1).T)
+
                     lag_diff = mp['LDS']['AB'].lag_state - mp['LDS']['AB'].lag_exog
                     if lag_diff > 0:
                         UL = UL[:, int(np.abs(lag_diff)):]
+                        MUL = MUL[:, int(np.abs(lag_diff)):]
                     elif lag_diff < 0:
                         WL = WL[:, int(np.abs(lag_diff)):]
+                        MWL = MWL[:, int(np.abs(lag_diff)):]
 
-                    AX = mp['LDS']['AB'].A.dot(WL[:, :-1])
-                    BU = mp['LDS']['AB'].B.dot(UL[:, :-1])
+                    AX = mp['LDS']['AB'].A.dot(WL[:, :-1]*MWL[:, :-1])
+                    BU = mp['LDS']['AB'].B.dot(UL[:, :-1]*MUL[:, :-1])
 
                     # Update A
-                    neg, pos = calc_div_grad(WL[:, 1:], AX + BU, WL[:, :-1].T,
-                                             mp['LDS']['beta'])
+                    neg, pos = calc_div_grad(
+                            WL[:, 1:]*MWL[:, 1:], AX + BU,
+                            (WL[:, :-1]*MWL[:, :-1]).T,
+                            mp['LDS']['beta'])
 
                     mp['LDS']['AB'].A *= \
                             (neg / pos)**mm_gamma_func(mp['LDS']['beta'])
+                    mp['LDS']['AB'].A[~np.isfinite(mp['LDS']['AB'].A)] = 0
 
                     # Update B
-                    neg, pos = calc_div_grad(WL[:, 1:], AX + BU, UL[:, :-1].T,
-                                             mp['LDS']['beta'])
+                    neg, pos = calc_div_grad(
+                            WL[:, 1:]*MWL[:, 1:], AX + BU,
+                            (UL[:, :-1]*MUL[:, :-1]).T,
+                            mp['LDS']['beta'])
 
                     mp['LDS']['AB'].B *= \
                             (neg / pos)**mm_gamma_func(mp['LDS']['beta'])
+                    mp['LDS']['AB'].B[~np.isfinite(mp['LDS']['AB'].B)] = 0
 
                     mp['LDS']['AB'].as_ord_p()
 
@@ -370,7 +405,7 @@ def model_update(
         # Compute objective function
 
         # Cost of the observation model
-        cost_obs = calc_cost(X, W.full(), mp['NTF']['beta'])
+        cost_obs = calc_cost(X[mask], W.full()[mask], mp['NTF']['beta'])
 
         # Update the model
         model.update(cost_obs)
