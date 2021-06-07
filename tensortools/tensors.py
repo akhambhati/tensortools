@@ -55,7 +55,8 @@ class KTensor(object):
         norms = [sci.linalg.norm(f, axis=0) for f in self.factors]
 
         # Multiply norms across all modes
-        lam = sci.multiply.reduce(norms) ** (1/self.ndim)
+        #lam = sci.multiply.reduce(norms) ** (1/self.ndim)
+        lam = np.prod(norms) ** (1/self.ndim)
 
         # Update factors
         self.factors = [f * (lam / fn) for f, fn in zip(self.factors, norms)]
