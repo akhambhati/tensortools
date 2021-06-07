@@ -12,6 +12,10 @@ Last Updated: 2018/11/06
 
 import numpy as np
 
+
+EPSILON = np.finfo(np.float32).eps
+
+
 def calc_cost(x, x_h, beta):
     """
     Compute the beta divergence between two matrices for a given beta.
@@ -35,6 +39,8 @@ def calc_cost(x, x_h, beta):
 
     if x.shape != x_h.shape:
         raise Exception('x and x_h must have same array shape')
+
+    x_h[x_h == 0] = EPSILON
 
     if beta == 2:
         return np.sqrt(np.sum((x - x_h)**2))
@@ -93,12 +99,12 @@ def calc_div_grad(x, x_h, kr, beta):
             Positive gradient component
     """
 
+    x_h[x_h == 0] = EPSILON
+
     neg_inv = x_h**(beta - 2)
-    neg_inv[~np.isfinite(neg_inv)] = 0
     neg = (neg_inv * x).dot(kr)
 
     pos_inv = x_h**(beta - 1)
-    pos_inv[~np.isfinite(pos_inv)] = 0
     pos = (pos_inv).dot(kr)
 
     return neg, pos
