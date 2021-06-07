@@ -10,6 +10,7 @@ Last Updated: 2018/01/02
 """
 
 import numpy as np
+import tensorly as tl
 
 from tensortools.dynamics import LDS
 from tensortools.operations import khatri_rao, unfold
@@ -19,15 +20,17 @@ from . import optim_utils
 from ._betadiv import calc_cost, calc_div_grad, calc_time_grad, mm_gamma_func
 
 
+EPSILON = np.finfo(np.float32).eps
+
+
 def init_model(
         X,
         rank,
         NTF_dict={'beta': 2,
-                  'init': 'rand'},
+                  'init': np.random.rand},
         REG_dict={'axis': 0,
                   'l1_ratio': 0.5,
-                  'alpha': 1e-6,
-                  'init': 'rand'},
+                  'alpha': 1e-6},
         LDS_dict={
             'axis': 0,
             'beta': 2,
@@ -59,10 +62,9 @@ def init_model(
                 If 2: Euclidean Distance
                 Else: Parameterized version
 
-            init: str, ['rand', 'randn']
-                Specifies initial guess for KTensor factor matrices.
-                If ``'randn'``, Gaussian random numbers are used to initialize.
-                If ``'rand'``, uniform random numbers are used to initialize.
+            init: numpy.random.[XYZ]
+                Specifies initial guess for factor matrices.
+                Draw values from the specified random distribution
 
         REG_dict: dict
             Parameters corresponding to model regularization via Elastic-Net.
@@ -109,6 +111,7 @@ def init_model(
 
     # Check inputs.
     optim_utils._check_cpd_inputs(X, rank)
+    X = tl.tensor(X)
     n_mode = X.ndim
     if NTF_dict is None:
         raise Exception('Parameters for observation model must be specified.')
@@ -140,8 +143,9 @@ def init_model(
                 'data tensor.')
 
     # Initialize model arrays/tensors.
-    W, _ = optim_utils._get_initial_ktensor(NTF_dict['init'], X, rank,
-                                            random_state)
+    W = []
+    for m_i in range(n_mode):
+        W.append(tl.tensor(NTF_dict['init'](X.shape[m_i], rank)))
     NTF_dict['W'] = W
 
     if LDS_dict is not None:
@@ -346,8 +350,8 @@ def model_update(
                     mp['LDS']['AB'].as_ord_p()
 
             # vi) Update the observational component weights
+            pos[pos == 0] = EPSILON
             W[n] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
-            W[n][~np.isfinite(W[n])] = 0
 
             # vii) Update the dynamical state weights
             if (flag_lds):
