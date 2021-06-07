@@ -11,7 +11,7 @@ Last Updated: 2018/11/06
 """
 
 import numpy as np
-
+import tensorly as tl
 
 EPSILON = np.finfo(np.float32).eps
 
@@ -102,10 +102,10 @@ def calc_div_grad(x, x_h, kr, beta):
     x_h[x_h == 0] = EPSILON
 
     neg_inv = x_h**(beta - 2)
-    neg = (neg_inv * x).dot(kr)
+    neg = tl.dot((neg_inv * x), kr)
 
     pos_inv = x_h**(beta - 1)
-    pos = (pos_inv).dot(kr)
+    pos = tl.dot(pos_inv, kr)
 
     return neg, pos
 

@@ -13,7 +13,6 @@ import numpy as np
 import tensorly as tl
 
 from tensortools.dynamics import LDS
-from tensortools.operations import khatri_rao, unfold
 from tensortools.tensors import KTensor
 
 from . import optim_utils
@@ -30,7 +29,7 @@ def init_model(
                   'init': np.random.rand},
         REG_dict={'axis': 0,
                   'l1_ratio': 0.5,
-                  'alpha': 1e-6},
+                  'alpha': 0},
         LDS_dict={
             'axis': 0,
             'beta': 2,
@@ -146,7 +145,7 @@ def init_model(
     W = []
     for m_i in range(n_mode):
         W.append(tl.tensor(NTF_dict['init'](X.shape[m_i], rank)))
-    NTF_dict['W'] = W
+    NTF_dict['W'] = KTensor(W)
 
     if LDS_dict is not None:
         A = optim_utils._get_initial_statematr(
@@ -171,7 +170,6 @@ def init_model(
 def model_update(
         X,
         model,
-        mask=None,
         exog_input=None,
         fixed_axes=[],
         fit_dict={
@@ -236,12 +234,6 @@ def model_update(
     if X.shape != model.model_param['NTF']['W'].shape:
         raise Exception('Shape of input X does not match shape expected by ' +
                         'initialized model.')
-    if mask is not None:
-        if mask.shape != X.shape:
-            raise Exception(
-                'Size of mask array does not match size of data tensor.')
-    else:
-        mask = np.ones_like(X)
 
     if exog_input is not None:
         if exog_input.shape[0] != X.shape[model.model_param['LDS']['axis']]:
@@ -272,8 +264,7 @@ def model_update(
     # Set pointers to commonly used objects
     mp = model.model_param
     W = mp['NTF']['W']
-    X_unfold = [unfold(X, n) for n in range(X.ndim)]
-    M_unfold = [unfold(mask, n) for n in range(mask.ndim)]
+    X_unfold = [tl.base.unfold(X, n) for n in range(tl.ndim(X))]
 
     # Set flags for conditional operations
     flag_lds = True if mp['LDS'] is not None else False
@@ -297,15 +288,14 @@ def model_update(
             # Select all components, but U_n
 
             # i)  Compute Khatri-Rao product
-            kr = khatri_rao([W[j] for j in range(W.ndim) if j != n])
+            kr = tl.tenalg.khatri_rao(W.factors, skip_matrix = n)
 
             # ii) Compute unfolded prediction of X
-            p = W[n].dot(kr.T)
+            p = tl.dot(W[n], tl.transpose(kr))
 
             # iii) Compute gradient for the observation model
             Xn = X_unfold[n]
-            Mn = M_unfold[n]
-            neg, pos = calc_div_grad(Xn*Mn, p*Mn, kr, mp['NTF']['beta'])
+            neg, pos = calc_div_grad(Xn, p, kr, mp['NTF']['beta'])
 
             # iv) Add a regularizer
             if (flag_reg):
@@ -409,7 +399,7 @@ def model_update(
         # Compute objective function
 
         # Cost of the observation model
-        cost_obs = calc_cost(X[mask], W.full()[mask], mp['NTF']['beta'])
+        cost_obs = calc_cost(X, W.full(), mp['NTF']['beta'])
 
         # Update the model
         model.update(cost_obs)
