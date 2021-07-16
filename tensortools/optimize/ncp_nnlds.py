@@ -170,6 +170,7 @@ def init_model(
 def model_update(
         X,
         model,
+        mask=None,
         exog_input=None,
         fixed_axes=[],
         fit_dict={
@@ -235,6 +236,13 @@ def model_update(
         raise Exception('Shape of input X does not match shape expected by ' +
                         'initialized model.')
 
+    if mask is not None:
+        if mask.shape != X.shape:
+            raise Exception(
+                'Size of mask array does not match size of data tensor.')
+    else:
+        mask = np.ones_like(X)
+
     if exog_input is not None:
         if exog_input.shape[0] != X.shape[model.model_param['LDS']['axis']]:
             raise Exception(
@@ -265,6 +273,7 @@ def model_update(
     mp = model.model_param
     W = mp['NTF']['W']
     X_unfold = [tl.base.unfold(X, n) for n in range(tl.ndim(X))]
+    M_unfold = [tl.base.unfold(mask, n) for n in range(tl.ndim(mask))]
 
     # Set flags for conditional operations
     flag_lds = True if mp['LDS'] is not None else False
@@ -295,6 +304,7 @@ def model_update(
 
             # iii) Compute gradient for the observation model
             Xn = X_unfold[n]
+            Mn = M_unfold[n]
             neg, pos = calc_div_grad(Xn, p, kr, mp['NTF']['beta'])
 
             # iv) Add a regularizer
@@ -399,7 +409,7 @@ def model_update(
         # Compute objective function
 
         # Cost of the observation model
-        cost_obs = calc_cost(X, W.full(), mp['NTF']['beta'])
+        cost_obs = calc_cost(X[mask], W.full()[mask], mp['NTF']['beta'])
 
         # Update the model
         model.update(cost_obs)
