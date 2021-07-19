@@ -13,7 +13,7 @@ Last Updated: 2018/11/06
 import numpy as np
 import tensorly as tl
 
-EPSILON = np.finfo(np.float32).eps
+EPSILON = np.finfo(np.float64).eps
 
 
 def calc_cost(x, x_h, beta):
@@ -167,31 +167,31 @@ def calc_time_grad(A, X_t, B, U_t, beta):
     AXBU = A.dot(X_t0) + B.dot(U_t0)
 
     neg_inv = AXBU**(beta - 2)
-    neg_inv[~np.isfinite(neg_inv)] = 0
+    neg_inv[~np.isfinite(neg_inv)] = EPSILON
     neg_forw[:, :-2] = A.T.dot(neg_inv) * X_t1
 
     pos_inv = AXBU**(beta - 1)
-    pos_inv[~np.isfinite(pos_inv)] = 0
+    pos_inv[~np.isfinite(pos_inv)] = EPSILON
     pos_forw[:, :-2] = A.T.dot(pos_inv)
 
     # Compute the reverse gradients (t-1 --> t)
     AXBU = A.dot(X_t1) + B.dot(U_t1)
     if beta > 1:
         neg_inv = AXBU**(beta - 1)
-        neg_inv[~np.isfinite(neg_inv)] = 0
+        neg_inv[~np.isfinite(neg_inv)] = EPSILON
         neg_back[:, 2:] = np.abs(1 / (beta - 1)) * (neg_inv)
 
         pos_inv = X_t2**(beta - 1)
-        pos_inv[~np.isfinite(pos_inv)] = 0
+        pos_inv[~np.isfinite(pos_inv)] = EPSILON
         pos_back[:, 2:] = np.abs(1 / (beta - 1)) * (pos_inv)
 
     if beta < 1:
         neg_inv = X_t2**(beta - 1)
-        neg_inv[~np.isfinite(neg_inv)] = 0
+        neg_inv[~np.isfinite(neg_inv)] = EPSILON
         neg_back[:, 2:] = np.abs(1 / (beta - 1)) * (neg_inv)
 
         pos_inv = AXBU**(beta - 1)
-        pos_inv[~np.isfinite(pos_inv)] = 0
+        pos_inv[~np.isfinite(pos_inv)] = EPSILON
         pos_back[:, 2:] = np.abs(1 / (beta - 1)) * (pos_inv)
 
     if beta == 1:

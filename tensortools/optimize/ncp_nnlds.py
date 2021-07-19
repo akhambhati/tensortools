@@ -19,7 +19,7 @@ from . import optim_utils
 from ._betadiv import calc_cost, calc_div_grad, calc_time_grad, mm_gamma_func
 
 
-EPSILON = np.finfo(np.float32).eps
+EPSILON = np.finfo(np.float64).eps
 
 
 def init_model(
@@ -350,7 +350,7 @@ def model_update(
                     mp['LDS']['AB'].as_ord_p()
 
             # vi) Update the observational component weights
-            pos[pos == 0] = EPSILON
+            pos[pos <= 0] = EPSILON
             W[n] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
 
             # vii) Update the dynamical state weights
@@ -386,20 +386,22 @@ def model_update(
                             WL[:, 1:]*MWL[:, 1:], AX + BU,
                             (WL[:, :-1]*MWL[:, :-1]).T,
                             mp['LDS']['beta'])
+                    pos[pos == 0] = EPSILON
 
                     mp['LDS']['AB'].A *= \
                             (neg / pos)**mm_gamma_func(mp['LDS']['beta'])
-                    mp['LDS']['AB'].A[~np.isfinite(mp['LDS']['AB'].A)] = 0
+                    mp['LDS']['AB'].A[~np.isfinite(mp['LDS']['AB'].A)] = EPSILON
 
                     # Update B
                     neg, pos = calc_div_grad(
                             WL[:, 1:]*MWL[:, 1:], AX + BU,
                             (UL[:, :-1]*MUL[:, :-1]).T,
                             mp['LDS']['beta'])
+                    pos[pos == 0] = EPSILON
 
                     mp['LDS']['AB'].B *= \
                             (neg / pos)**mm_gamma_func(mp['LDS']['beta'])
-                    mp['LDS']['AB'].B[~np.isfinite(mp['LDS']['AB'].B)] = 0
+                    mp['LDS']['AB'].B[~np.isfinite(mp['LDS']['AB'].B)] = EPSILON
 
                     mp['LDS']['AB'].as_ord_p()
 
