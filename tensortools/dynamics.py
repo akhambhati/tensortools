@@ -155,7 +155,7 @@ class LDS(object):
 
         form = self.form
         self.as_ord_1()
-        self.A /= (np.abs(np.linalg.svd(self.A)[1]).max() + 1)
+        self.A /= (np.linalg.svd(self.A)[1].max() + 1)
 
         if form != self.form:
             self.as_ord_p()

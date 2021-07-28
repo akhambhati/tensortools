@@ -53,8 +53,36 @@ class KTensor(object):
         self.factors = [f[:, idx] for f in self.factors]
         return self.factors
 
+    def rebalance(self):
+        """Rescales factors across modes so that all norms match."""
+
+        # Compute norms along columns for each factor matrix
+        norms = [np.linalg.norm(f, axis=0) for f in self.factors]
+
+        # Multiply norms across all modes
+        lam = np.prod(norms, axis=0) ** (1/self.ndim)
+
+        # Update factors
+        self.factors = [f * (lam / fn) for f, fn in zip(self.factors, norms)]
+        return self
+
+    def component_lams(self):
+        fnrms = np.column_stack(
+            [np.linalg.norm(f, axis=0) for f in self.factors])
+        return np.prod(fnrms, axis=1)
+
+    def norm(self):
+        """Efficiently computes Frobenius-like norm of the tensor."""
+        C = np.prod([F.T @ F for F in self.factors], axis=0)
+        return np.sqrt(np.sum(C))
+
     def copy(self):
         return deepcopy(self)
+
+    def rescale(self, norm):
+        # Rescale the tensor to match the specified norm.
+        self.factors[0] *= norm / self.norm()
+        self.rebalance()
 
     def __getitem__(self, i):
         return self.factors[i]

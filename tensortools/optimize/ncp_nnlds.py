@@ -9,6 +9,10 @@ Author: Ankit N. Khambhati <akhambhati@gmail.com>
 Last Updated: 2018/01/02
 """
 
+import os
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
 import numpy as np
 import tensorly as tl
 
@@ -20,7 +24,8 @@ from ._betadiv import calc_cost, calc_div_grad, calc_time_grad, mm_gamma_func
 
 
 EPSILON = np.finfo(np.float64).eps
-
+pprint = lambda x: print(x, flush=True)
+pprint = lambda x: x
 
 def init_model(
         X,
@@ -110,6 +115,7 @@ def init_model(
 
     # Check inputs.
     optim_utils._check_cpd_inputs(X, rank)
+    normX = np.linalg.norm(X)
     X = tl.tensor(X)
     n_mode = X.ndim
     if NTF_dict is None:
@@ -156,6 +162,9 @@ def init_model(
             random_state)
 
         LDS_dict['AB'] = LDS(A, B)
+        #LDS_dict['AB'].A[0] = (LDS_dict['AB'].A[0].T / LDS_dict['AB'].A[0].sum(axis=1)).T
+        LDS_dict['AB'].A[0] += np.eye(rank)
+        LDS_dict['AB'].schur_stabilize()
 
     model = optim_utils.FitModel(model_param={
         'rank': rank,
@@ -350,13 +359,20 @@ def model_update(
                     mp['LDS']['AB'].as_ord_p()
 
             # vi) Update the observational component weights
-            pos[pos <= 0] = EPSILON
-            W[n] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
+            neg_pos_grad = (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
+            pprint('W[{}] :: {} {}'.format(n, neg_pos_grad.min(), neg_pos_grad.max()))
+            W[n] *= neg_pos_grad
+            pprint('W[{}]_vals :: {} {}'.format(n, W[n].min(), W[n].max()))
 
             # vii) Update the dynamical state weights
             if (flag_lds):
+                if (n == mp['LDS']['axis']):
+                    # Normalize LDS weight dimension
+                    W[n] = W[n] # (W[n].T / W[n].sum(axis=1)).T
+                    
                 if ((n == mp['LDS']['axis']) & 
                     (model.status['iterations'] >= model.fit_param['LDS_iter'])):
+
                     mp['LDS']['AB'].as_ord_1()
 
                     Mlag = Mn.all(axis=-1).reshape(-1,1)
@@ -386,10 +402,12 @@ def model_update(
                             WL[:, 1:]*MWL[:, 1:], AX + BU,
                             (WL[:, :-1]*MWL[:, :-1]).T,
                             mp['LDS']['beta'])
-                    pos[pos == 0] = EPSILON
 
-                    mp['LDS']['AB'].A *= \
-                            (neg / pos)**mm_gamma_func(mp['LDS']['beta'])
+                    neg_pos_grad = (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
+                    pprint('A[{}] :: {} {}'.format(n, neg_pos_grad.min(), neg_pos_grad.max()))
+
+                    mp['LDS']['AB'].A *= neg_pos_grad
+                    mp['LDS']['AB'].A = mp['LDS']['AB'].A.clip(min=EPSILON)
                     mp['LDS']['AB'].A[~np.isfinite(mp['LDS']['AB'].A)] = EPSILON
 
                     # Update B
@@ -397,14 +415,23 @@ def model_update(
                             WL[:, 1:]*MWL[:, 1:], AX + BU,
                             (UL[:, :-1]*MUL[:, :-1]).T,
                             mp['LDS']['beta'])
-                    pos[pos == 0] = EPSILON
+                    neg_pos_grad = (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
+                    pprint('B[{}] :: {} {}'.format(n, neg_pos_grad.min(), neg_pos_grad.max()))
 
-                    mp['LDS']['AB'].B *= \
-                            (neg / pos)**mm_gamma_func(mp['LDS']['beta'])
+                    mp['LDS']['AB'].B *=neg_pos_grad
+                    mp['LDS']['AB'].B = mp['LDS']['AB'].B.clip(min=EPSILON)
                     mp['LDS']['AB'].B[~np.isfinite(mp['LDS']['AB'].B)] = EPSILON
 
                     mp['LDS']['AB'].as_ord_p()
+                    #mp['LDS']['AB'].A[0] = (
+                    #    mp['LDS']['AB'].A[0].T / mp['LDS']['AB'].A[0].sum(axis=1)).T
+                    #mp['LDS']['AB'].A[0][np.diag_indices_from(mp['LDS']['AB'].A[0])] = EPSILON
 
+                    mp['LDS']['AB'].schur_stabilize()
+
+                    mp['LDS']['AB'].as_ord_p()
+                    pprint('A[{}] :: {}'.format(n, mp['LDS']['AB'].A))
+        pprint('\n')
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # Update the optimization model, checks for convergence.
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
