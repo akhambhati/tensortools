@@ -163,8 +163,7 @@ def init_model(
 
         LDS_dict['AB'] = LDS(A, B)
         #LDS_dict['AB'].A[0] = (LDS_dict['AB'].A[0].T / LDS_dict['AB'].A[0].sum(axis=1)).T
-        LDS_dict['AB'].A[0] += np.eye(rank)
-        LDS_dict['AB'].schur_stabilize()
+        #LDS_dict['AB'].schur_stabilize()
 
     model = optim_utils.FitModel(model_param={
         'rank': rank,
@@ -366,10 +365,9 @@ def model_update(
 
             # vii) Update the dynamical state weights
             if (flag_lds):
-                if (n == mp['LDS']['axis']):
-                    # Normalize LDS weight dimension
-                    W[n] = W[n] # (W[n].T / W[n].sum(axis=1)).T
-                    
+                if ((n == mp['LDS']['axis'])):
+                    W[n] = W[n] / np.linalg.norm(W[n], axis=0)
+
                 if ((n == mp['LDS']['axis']) & 
                     (model.status['iterations'] >= model.fit_param['LDS_iter'])):
 
@@ -427,7 +425,7 @@ def model_update(
                     #    mp['LDS']['AB'].A[0].T / mp['LDS']['AB'].A[0].sum(axis=1)).T
                     #mp['LDS']['AB'].A[0][np.diag_indices_from(mp['LDS']['AB'].A[0])] = EPSILON
 
-                    mp['LDS']['AB'].schur_stabilize()
+                    #mp['LDS']['AB'].schur_stabilize()
 
                     mp['LDS']['AB'].as_ord_p()
                     pprint('A[{}] :: {}'.format(n, mp['LDS']['AB'].A))
