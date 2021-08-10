@@ -14,8 +14,6 @@ import numpy as np
 import tensorly as tl
 
 EPSILON = np.finfo(np.float64).eps
-pprint = lambda x: print(x, flush=True)
-pprint = lambda x: x
 
 
 def calc_cost(x, x_h, beta):
@@ -198,17 +196,5 @@ def calc_time_grad(A, X_t, B, U_t, beta):
     if beta == 1:
         neg_back[:, 2:] = np.log(AXBU)
         pos_back[:, 2:] = np.log(X_t2)
-
-    pprint('time_grad_back :: {} {} {} {}'.format(
-        (neg_back).min(), (neg_back).max(),
-        (pos_back).min(), (pos_back.max())))
-
-    pprint('time_grad_forw :: {} {} {} {}'.format(
-        (neg_forw).min(), (neg_forw).max(),
-        (pos_forw).min(), (pos_forw).max()))
-
-    pprint('time_grad_sum :: {} {} {} {}'.format(
-        (neg_back + neg_forw).min(), (neg_back + neg_forw).max(),
-        (pos_back + pos_forw).min(), (pos_back + pos_forw).max()))
 
     return (neg_back + neg_forw), (pos_back + pos_forw)
