@@ -81,14 +81,8 @@ class LDS(object):
         k_S = self.rank_state
         k_E = self.rank_exog
 
-        AA = np.eye(k_S * l_S, k=-k_S)
-        AA[:k_S, :] = self.A.transpose((1, 0, 2)).reshape(k_S, -1)
-
-        BB = np.zeros((k_S * l_S, k_E * l_E))
-        BB[:k_S, :] = self.B.transpose((1, 0, 2)).reshape(k_S, -1)
-
-        self.A = AA
-        self.B = BB
+        self.A = self.A.transpose((1,0,2)).reshape(k_S, k_S*l_S)
+        self.B = self.B.transpose((1,0,2)).reshape(k_S, k_E*l_E)
         self.form = 'ord_1'
 
     def as_ord_p(self):
@@ -103,28 +97,8 @@ class LDS(object):
         k_S = self.rank_state
         k_E = self.rank_exog
 
-        assert self.A.shape == (k_S * l_S, k_S * l_S)
-        k_S_hat = self.A.shape[0] / l_S
-        assert k_S_hat == np.round(k_S_hat)
-        k_S_hat = int(np.round(k_S_hat))
-
-        AA = self.A[:k_S_hat, :].reshape(k_S_hat, -1, k_S_hat).transpose(
-            1, 0, 2)
-
-        assert self.B.shape == (k_S * l_S, k_E * l_E)
-        k_S_hat = self.B.shape[0] / l_S
-        assert k_S_hat == np.round(k_S_hat)
-        k_S_hat = int(np.round(k_S_hat))
-
-        k_E_hat = self.B.shape[1] / l_E
-        assert k_E_hat == np.round(k_E_hat)
-        k_E_hat = int(np.round(k_E_hat))
-
-        BB = self.B[:k_S_hat, :].reshape(k_S_hat, -1, k_E_hat).transpose(
-            1, 0, 2)
-
-        self.A = AA
-        self.B = BB
+        self.A = self.A.reshape(k_S, l_S, k_S).transpose((1,0,2))
+        self.B = self.B.reshape(k_S, l_E, k_E).transpose((1,0,2))
         self.form = 'ord_p'
 
     def get_eigs(self):
@@ -160,7 +134,7 @@ class LDS(object):
         if form != self.form:
             self.as_ord_p()
 
-    def conv_state_to_lagged(self, X):
+    def conv_vecs_to_lagged(self, X, matrix_type):
         """Make an auxilliary state matrix lagged based on LDS parameters."""
 
         # X has shape: [rank, N]
@@ -168,26 +142,44 @@ class LDS(object):
             raise Exception('X must be a 2-D array.')
 
         K, N = X.shape
-        if K != self.rank_state:
-            raise Exception(
-                'Axis 0 of X must be of length equal to ' +
-                'state-transition rank ({}).'.format(self.rank_state))
+        if matrix_type == 'state':
+            if K != self.rank_state:
+                raise Exception(
+                    'Axis 0 of X must be of length equal to ' +
+                    'state-transition rank ({}).'.format(self.rank_state))
 
-        if N < self.lag_state:
-            raise Exception(
-                'Axis 1 of X must have greater samples than ' +
-                'lag-order of state-transition ({})'.format(self.lag_state))
+            if N < self.lag_state:
+                raise Exception(
+                    'Axis 1 of X must have greater samples than ' +
+                    'lag-order of state-transition ({})'.format(self.lag_state))
+
+            rank = self.rank_state
+            lags = self.lag_state
+
+        elif matrix_type == 'exog':
+            if K != self.rank_exog:
+                raise Exception(
+                    'Axis 0 of X must be of length equal to ' +
+                    'control-input rank ({}).'.format(self.rank_exog))
+
+            if N < self.lag_exog:
+                raise Exception(
+                    'Axis 1 of X must have greater samples than ' +
+                    'lag-order of control-input ({})'.format(self.lag_exog))
+
+            rank = self.rank_exog
+            lags = self.lag_exog
 
         # Shift X to shape (L, K, N-L+1)
         # Return an unfolded array (K*L, N-L+1)
         X = np.array([
-            X[:, l:(N - (self.lag_state - l) + 1)]
-            for l in range(self.lag_state - 1, -1, -1)
+            X[:, l:(N - (lags - l) + 1)]
+            for l in range(lags - 1, -1, -1)
         ])
 
-        return X.reshape(-1, N - self.lag_state + 1)
+        return X.reshape(-1, N - lags + 1)
 
-    def conv_state_to_unlagged(self, X):
+    def conv_vecs_to_unlagged(self, X, matrix_type):
         """Make an auxilliary state matrix unlagged based on LDS parameters."""
 
         # X has shape: [rank*lags, N-rank]
@@ -195,79 +187,74 @@ class LDS(object):
             raise Exception('X must be a 2-D array.')
 
         KL, N = X.shape
-        K = KL / self.lag_state
 
-        if (KL != self.rank_state * self.lag_state) or (K != np.round(K)):
-            raise Exception(
-                'Axis 0 of X must be of length equal to ' +
-                'state-transition rank ({}) '.format(self.rank_state) +
-                'times state-transition lag ({}).'.format(self.lag_state))
-        K = int(np.round(K))
+        if matrix_type == 'state':
+            K = KL / self.lag_state
 
-        if self.lag_state == 1:
-            return X
-        else:
-            X = X.reshape(self.lag_state, K, N)
+            if (KL != self.rank_state * self.lag_state) or (K != np.round(K)):
+                raise Exception(
+                    'Axis 0 of X must be of length equal to ' +
+                    'state-transition rank ({}) '.format(self.rank_state) +
+                    'times state-transition lag ({}).'.format(self.lag_state))
+            K = int(np.round(K))
 
-            # Reconstruct the shortened signal
-            # New X has shape: [K, N+lags-1]
-            X = np.concatenate(
-                (X[-1, :, :], X[0, :, 1 - self.lag_state:]), axis=1)
+            if self.lag_state == 1:
+                return X
+            else:
+                X = X.reshape(self.lag_state, K, N)
 
-            return X
+                # Reconstruct the shortened signal
+                # New X has shape: [K, N+lags-1]
+                X = np.concatenate(
+                    (X[-1, :, :], X[0, :, 1 - self.lag_state:]), axis=1)
 
-    def conv_exog_to_lagged(self, X):
-        """Make an auxilliary input matrix lagged based on LDS parameters."""
+                return X
 
-        # X has shape: [rank, N]
-        if X.ndim != 2:
-            raise Exception('X must be a 2-D array.')
+        elif matrix_type == 'exog':
+            K = KL / self.lag_exog
 
-        K, N = X.shape
-        if K != self.rank_exog:
-            raise Exception(
-                'Axis 0 of X must be of length equal to ' +
-                'control-input rank ({}).'.format(self.rank_exog))
+            if (KL != self.rank_exog * self.lag_exog) or (K != np.round(K)):
+                raise Exception(
+                    'Axis 0 of X must be of length equal to ' +
+                    'control-input rank ({}) '.format(self.rank_exog) +
+                    'times control-input lag ({}).'.format(self.lag_exog))
+            K = int(np.round(K))
 
-        if N < self.lag_exog:
-            raise Exception(
-                'Axis 1 of X must have greater samples than ' +
-                'lag-order of control-input ({})'.format(self.lag_exog))
+            if self.lag_exog == 1:
+                return X
+            else:
+                X = X.reshape(self.lag_exog, K, N)
 
-        # Shift X to shape (L, K, N-L+1)
-        # Return an unfolded array (K*L, N-L+1)
-        X = np.array([
-            X[:, l:(N - (self.lag_exog - l) + 1)]
-            for l in range(self.lag_exog - 1, -1, -1)
-        ])
+                # Reconstruct the shortened signal
+                # New X has shape: [K, N+lags-1]
+                X = np.concatenate(
+                    (X[-1, :, :], X[0, :, 1 - self.lag_exog:]), axis=1)
 
-        return X.reshape(-1, N - self.lag_exog + 1)
+                return X
 
-    def conv_exog_to_unlagged(self, X):
-        """Make an auxilliary input matrix unlagged based on LDS parameters."""
 
-        # X has shape: [rank*lags, N-rank]
-        if X.ndim != 2:
-            raise Exception('X must be a 2-D array.')
+    def truncate_lagged(self, Xt, Ut):
+        Xt_L = self.conv_vecs_to_lagged(Xt.T, matrix_type='state')
+        Ut_L = self.conv_vecs_to_lagged(Ut.T, matrix_type='exog')
 
-        KL, N = X.shape
-        K = KL / self.lag_exog
+        lag_diff = self.lag_state - self.lag_exog
+        if lag_diff > 0:
+            Ut_L = Ut_L[:, int(np.abs(lag_diff)):]
+        elif lag_diff < 0:
+            Xt_L = Xt_L[:, int(np.abs(lag_diff)):]
 
-        if (KL != self.rank_exog * self.lag_exog) or (K != np.round(K)):
-            raise Exception(
-                'Axis 0 of X must be of length equal to ' +
-                'control-input rank ({}) '.format(self.rank_exog) +
-                'times control-input lag ({}).'.format(self.lag_exog))
-        K = int(np.round(K))
+        return Xt_L, Ut_L
 
-        if self.lag_exog == 1:
-            return X
-        else:
-            X = X.reshape(self.lag_exog, K, N)
 
-            # Reconstruct the shortened signal
-            # New X has shape: [K, N+lags-1]
-            X = np.concatenate(
-                (X[-1, :, :], X[0, :, 1 - self.lag_exog:]), axis=1)
+    def filter_state(self, Xt, Ut):
 
-            return X
+        Xt_L, Ut_L = self.truncate_lagged(Xt, Ut)
+
+        orig_form = self.form
+        self.as_ord_1()
+        AXBU = self.A.dot(Xt_L) + self.B.dot(Ut_L)
+        
+        if orig_form == 'ord_p':
+            self.as_ord_p()
+
+        return AXBU.T, Xt_L, Ut_L
