@@ -38,7 +38,7 @@ def init_model(
             'beta': 2,
             'lag_state': 1,
             'lag_exog': 1,
-            'l2_norm': True,
+            'anneal_wt': 1,
             'init': 'rand'
         },
         exog_input=None,
@@ -325,7 +325,7 @@ def model_update(
 
             if (n == 0):
                 if Wn_filt is not None:
-                    W[n] *= Wn_filt**(0.001)
+                    W[n] *= Wn_filt**(mp['LDS']['anneal_wt'])
                 W[n] = (W[n].T / np.sum(W[n], axis=1)).T
             else:
                 W[n] = (W[n] / np.sum(W[n], axis=0))
@@ -342,7 +342,7 @@ def model_update(
 
                     # Update A
                     neg, pos = calc_div_grad(
-                            W[n].T[:, mp['LDS']['AB'].lag_state:], AXBU.T[:, :-1],
+                            W[n].T[:, mp['LDS']['AB'].max_lag:], AXBU.T[:, :-1],
                             WL[:, :-1].T,
                             mp['LDS']['beta'])
 
@@ -355,7 +355,7 @@ def model_update(
 
                     # Update B
                     neg, pos = calc_div_grad(
-                            W[n].T[:, mp['LDS']['AB'].lag_state:], AXBU.T[:, :-1],
+                            W[n].T[:, mp['LDS']['AB'].max_lag:], AXBU.T[:, :-1],
                             UL[:, :-1].T,
                             mp['LDS']['beta'])
                     neg_pos_grad = (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
@@ -379,188 +379,3 @@ def model_update(
 
     # end optimization loop, return model.
     return model.finalize()
-
-
-def model_forecast(
-        X,
-        exog_input,
-        model,
-        fit_dict={
-            'method': '{}-Divergence'.format(u'\u03B2'),
-            'tol': 1e-5,
-            'min_iter': 1,
-            'max_iter': 500,
-            'verbose': True
-        }):
-    """
-    Use a trained NN-LDS model to forecast future states and observations.
-
-    Parameters
-    ----------
-        X : np.ndarray, tensor_like with shape: [I_1, I_2, ..., I_N]
-            Tensor containing dimensionality of the system output.
-            Each Tensor fiber, I, is considered a mode of the system.
-            Example modes are channels, time, trials, spectral frequency, etc.
-
-        model : FitModel object
-            Model that was created using the init_model function. The `model`
-            must explicitly contain an LDS component.
-
-        exog_input: np.ndarray, shape: [t, p]
-            If LDS_dict is used, then exog_input specifies the
-            p-dimensional input signal, or control input, over time t.
-            Must match the length of the observed axis.
-
-        forecast_steps: int
-            Number of samples ahead to forecast using each time sample in X
-            as a starting-point.
-
-        fit_dict: dict, specifying fitting options.
-
-            tol: float, Stopping tolerance for reconstruction error.
-
-            max_iter: int, Max number of iterations to perform before exiting.
-
-            min_iter: int, Min number of iterations to perform before exiting.
-
-            verbose : bool, Display progress.
-
-    Returns
-    -------
-    Xp : list[np.ndarray], listtensor_like with shape: [I_1, I_2, ..., I_N]
-        Skeletal Tensor containing dimensionality of the system output.
-            Each Tensor fiber, I, is considered a mode of the system.
-            Example modes are channels, time, trials, spectral frequency, etc.
-    """
-
-    # Check model
-    if 'NTF' not in model.model_param:
-        raise Exception('Model does not have a observation component.')
-    if 'LDS' not in model.model_param:
-        raise Exception('Model does not have a dynamical system component.')
-
-    # Check input matrix
-    optim_utils._check_cpd_inputs(X, model.model_param['rank'])
-    forecast_steps = (
-        exog_input.shape[0] - X.shape[model.model_param['LDS']['axis']])
-    if forecast_steps < 0:
-        raise Exception('Length of exogeneous input must be geq than ' +
-                        'length of data tensor in order to filter/forecast.')
-
-    if exog_input.shape[1] != model.model_param['LDS']['AB'].B.shape[-1]:
-        raise Exception('Shape of input signal does not match shape of ' +
-                        'control-input matrix.')
-
-    # Update model fit parameters
-    model.set_fit_param(**fit_dict)
-
-    # Reset the status of the model
-    model.reset_status()
-
-    # Set pointers to commonly used objects
-    mp = model.model_param
-    dAB = mp['LDS']['AB']
-    ax_t = mp['LDS']['axis']
-    Xn = unfold(X, ax_t)
-
-    # Initialize temporal state coefficients
-    assert model.model_param['NTF']['init'] in ['rand', 'randn']
-    if model.model_param['NTF']['init'] == 'randn':
-        H = np.random.randn(X.shape[ax_t], model.model_param['rank'])
-    else:
-        H = np.random.rand(X.shape[ax_t], model.model_param['rank'])
-
-    # Create a new model tensor with the temporal state mode replaced
-    W = KTensor([mp['NTF']['W'][j] if j != ax_t else H for j in range(X.ndim)])
-    mp['NTF']['W'] = W
-
-    # Use observation model to estimate the current temporal state mode
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # Iterate algorithm until convergence or maxiter is reached
-    # i)   compute the N gram matrices and multiply
-    # ii)  Compute Khatri-Rao product
-    # iii) Update component U_1, U_2, ... U_N
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-    if forecast_steps > 0:
-        Ufilter = exog_input[:-forecast_steps]
-
-    while model.still_optimizing:
-
-        # Select all components, but U_n
-        # i)  Compute Khatri-Rao product
-        kr = khatri_rao([W[j] for j in range(X.ndim) if j != ax_t])
-
-        # ii) Compute unfolded prediction of X
-        p = W[ax_t].dot(kr.T)
-
-        # iii) Compute gradient for the observation model
-        neg, pos = calc_div_grad(Xn, p, kr, mp['NTF']['beta'])
-
-        # iv) Compute gradient for the dynamical model
-        mp['LDS']['AB'].as_ord_1()
-
-        WL = mp['LDS']['AB'].conv_state_to_lagged(W[ax_t].T)
-        UL = mp['LDS']['AB'].conv_exog_to_lagged(Ufilter.T)
-
-        lag_diff = mp['LDS']['AB'].lag_state - mp['LDS']['AB'].lag_exog
-        if lag_diff > 0:
-            UL = UL[:, int(np.abs(lag_diff)):]
-        elif lag_diff < 0:
-            WL = WL[:, int(np.abs(lag_diff)):]
-
-        neg1, pos1 = calc_time_grad(mp['LDS']['AB'].A, WL,
-                                    mp['LDS']['AB'].B, UL,
-                                    mp['LDS']['beta'])
-        neg1 = mp['LDS']['AB'].conv_state_to_unlagged(neg1)
-        pos1 = mp['LDS']['AB'].conv_state_to_unlagged(pos1)
-
-        neg += neg1.T
-        pos += pos1.T
-
-        mp['LDS']['AB'].as_ord_p()
-
-        # vi) Update the observational component weights
-        W[ax_t] *= (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
-
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # Update the optimization model, checks for convergence.
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # Compute objective function
-
-        # Cost of the observation model
-        cost_obs = calc_cost(X, W.full(), mp['NTF']['beta'])
-
-        # Update the model
-        model.update(cost_obs)
-
-    # end optimization loop.
-    # Current temporal state mode is inferred, coefficients have been updated
-    model.finalize()
-
-    # Use LDS and current temporal state mode to forecast future state mode
-    dAB.as_ord_p()
-
-    Wn = list(W[ax_t])
-    Un = list(exog_input)
-    for p in range(forecast_steps):
-        W_ix = range(len(Wn) - 1, len(Wn) - 1 - dAB.lag_state, -1)
-        U_ix = range(len(Wn) - 1, len(Wn) - 1 - dAB.lag_exog, -1)
-
-        AX = np.array([
-            dAB.A[ii, :, :].dot(Wn[ij].reshape(-1, 1))
-            for ii, ij in enumerate(W_ix)
-            ])[:, :, 0].sum(axis=0)
-        BU = np.array([
-            dAB.B[ii, :, :].dot(Un[ij].reshape(-1, 1))
-            for ii, ij in enumerate(U_ix)
-            ])[:, :, 0].sum(axis=0)
-
-        Wn.append(AX + BU)
-    Wn = np.array(Wn)
-    Wn = Wn[-forecast_steps:, :]
-
-    # Re-mix forecasted state mode coefs through NTF
-    XP = KTensor([W[j] if j != ax_t else Wn for j in range(X.ndim)])
-
-    return XP
