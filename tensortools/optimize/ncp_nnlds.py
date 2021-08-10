@@ -24,8 +24,6 @@ from ._betadiv import calc_cost, calc_div_grad, calc_time_grad, mm_gamma_func
 
 
 EPSILON = np.finfo(np.float64).eps
-pprint = lambda x: print(x, flush=True)
-pprint = lambda x: x
 
 def init_model(
         X,
@@ -40,6 +38,7 @@ def init_model(
             'beta': 2,
             'lag_state': 1,
             'lag_exog': 1,
+            'l2_norm': True,
             'init': 'rand'
         },
         exog_input=None,
@@ -162,8 +161,6 @@ def init_model(
             random_state)
 
         LDS_dict['AB'] = LDS(A, B)
-        #LDS_dict['AB'].A[0] = (LDS_dict['AB'].A[0].T / LDS_dict['AB'].A[0].sum(axis=1)).T
-        #LDS_dict['AB'].schur_stabilize()
 
     model = optim_utils.FitModel(model_param={
         'rank': rank,
@@ -178,7 +175,6 @@ def init_model(
 def model_update(
         X,
         model,
-        mask=None,
         exog_input=None,
         fixed_axes=[],
         fit_dict={
@@ -244,13 +240,6 @@ def model_update(
         raise Exception('Shape of input X does not match shape expected by ' +
                         'initialized model.')
 
-    if mask is not None:
-        if mask.shape != X.shape:
-            raise Exception(
-                'Size of mask array does not match size of data tensor.')
-    else:
-        mask = np.ones_like(X)
-
     if exog_input is not None:
         if exog_input.shape[0] != X.shape[model.model_param['LDS']['axis']]:
             raise Exception(
@@ -281,7 +270,6 @@ def model_update(
     mp = model.model_param
     W = mp['NTF']['W']
     X_unfold = [tl.base.unfold(X, n) for n in range(tl.ndim(X))]
-    M_unfold = [tl.base.unfold(mask, n) for n in range(tl.ndim(mask))]
 
     # Set flags for conditional operations
     flag_lds = True if mp['LDS'] is not None else False
@@ -312,7 +300,6 @@ def model_update(
 
             # iii) Compute gradient for the observation model
             Xn = X_unfold[n]
-            Mn = M_unfold[n]
             neg, pos = calc_div_grad(Xn, p, kr, mp['NTF']['beta'])
 
             # iv) Add a regularizer
@@ -323,120 +310,69 @@ def model_update(
                              mp['REG']['l1_ratio']))
 
             # v) Compute gradient for the dynamical model
+            Wn_filt = None
             if (flag_lds):
                 if n == mp['LDS']['axis']:
-                    mp['LDS']['AB'].as_ord_1()
-
-                    Mlag = Mn.all(axis=-1).reshape(-1,1)
-
-                    # Update H
-                    WL = mp['LDS']['AB'].conv_state_to_lagged(W[n].T)
-                    UL = mp['LDS']['AB'].conv_exog_to_lagged(exog_input.T)
-
-                    MWL = mp['LDS']['AB'].conv_state_to_lagged(
-                            np.repeat(Mlag, mp['LDS']['AB'].rank_state, axis=1).T)
-                    MUL = mp['LDS']['AB'].conv_exog_to_lagged(
-                            np.repeat(Mlag, mp['LDS']['AB'].rank_exog, axis=1).T)
-
-                    lag_diff = mp['LDS']['AB'].lag_state - mp['LDS']['AB'].lag_exog
-                    if lag_diff > 0:
-                        UL = UL[:, int(np.abs(lag_diff)):]
-                        MUL = MUL[:, int(np.abs(lag_diff)):]
-                    elif lag_diff < 0:
-                        WL = WL[:, int(np.abs(lag_diff)):]
-                        MWL = MWL[:, int(np.abs(lag_diff)):]
-
-                    neg1, pos1 = calc_time_grad(mp['LDS']['AB'].A, WL*MWL,
-                                                mp['LDS']['AB'].B, UL*MUL,
-                                                mp['LDS']['beta'])
-                    neg1 = mp['LDS']['AB'].conv_state_to_unlagged(neg1)
-                    pos1 = mp['LDS']['AB'].conv_state_to_unlagged(pos1)
-
-                    neg += neg1.T
-                    pos += pos1.T
-
-                    mp['LDS']['AB'].as_ord_p()
+                    Wn_filt = mp['LDS']['AB'].filter_state(
+                            W[n], exog_input)[0][:-1]
+                    n_pad = W[n].shape[0] - Wn_filt.shape[0]
+                    Wn_filt = np.concatenate((
+                        np.ones((n_pad, mp['rank'])), Wn_filt))
 
             # vi) Update the observational component weights
             neg_pos_grad = (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
-            pprint('W[{}] :: {} {}'.format(n, neg_pos_grad.min(), neg_pos_grad.max()))
             W[n] *= neg_pos_grad
-            pprint('W[{}]_vals :: {} {}'.format(n, W[n].min(), W[n].max()))
+
+            if (n == 0):
+                if Wn_filt is not None:
+                    W[n] *= Wn_filt**(0.001)
+                W[n] = (W[n].T / np.sum(W[n], axis=1)).T
+            else:
+                W[n] = (W[n] / np.sum(W[n], axis=0))
 
             # vii) Update the dynamical state weights
             if (flag_lds):
-                if ((n == mp['LDS']['axis'])):
-                    W[n] = W[n] / np.linalg.norm(W[n], axis=0)
-
                 if ((n == mp['LDS']['axis']) & 
                     (model.status['iterations'] >= model.fit_param['LDS_iter'])):
 
                     mp['LDS']['AB'].as_ord_1()
 
-                    Mlag = Mn.all(axis=-1).reshape(-1,1)
-
-                    # Update A/B
-                    WL = mp['LDS']['AB'].conv_state_to_lagged(W[n].T)
-                    UL = mp['LDS']['AB'].conv_exog_to_lagged(exog_input.T)
-
-                    MWL = mp['LDS']['AB'].conv_state_to_lagged(
-                            np.repeat(Mlag, mp['LDS']['AB'].rank_state, axis=1).T)
-                    MUL = mp['LDS']['AB'].conv_exog_to_lagged(
-                            np.repeat(Mlag, mp['LDS']['AB'].rank_exog, axis=1).T)
-
-                    lag_diff = mp['LDS']['AB'].lag_state - mp['LDS']['AB'].lag_exog
-                    if lag_diff > 0:
-                        UL = UL[:, int(np.abs(lag_diff)):]
-                        MUL = MUL[:, int(np.abs(lag_diff)):]
-                    elif lag_diff < 0:
-                        WL = WL[:, int(np.abs(lag_diff)):]
-                        MWL = MWL[:, int(np.abs(lag_diff)):]
-
-                    AX = mp['LDS']['AB'].A.dot(WL[:, :-1]*MWL[:, :-1])
-                    BU = mp['LDS']['AB'].B.dot(UL[:, :-1]*MUL[:, :-1])
+                    AXBU, WL, UL = mp['LDS']['AB'].filter_state(
+                            W[n], exog_input)
 
                     # Update A
                     neg, pos = calc_div_grad(
-                            WL[:, 1:]*MWL[:, 1:], AX + BU,
-                            (WL[:, :-1]*MWL[:, :-1]).T,
+                            W[n].T[:, mp['LDS']['AB'].lag_state:], AXBU.T[:, :-1],
+                            WL[:, :-1].T,
                             mp['LDS']['beta'])
 
                     neg_pos_grad = (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
-                    pprint('A[{}] :: {} {}'.format(n, neg_pos_grad.min(), neg_pos_grad.max()))
 
                     mp['LDS']['AB'].A *= neg_pos_grad
+
                     mp['LDS']['AB'].A = mp['LDS']['AB'].A.clip(min=EPSILON)
                     mp['LDS']['AB'].A[~np.isfinite(mp['LDS']['AB'].A)] = EPSILON
 
                     # Update B
                     neg, pos = calc_div_grad(
-                            WL[:, 1:]*MWL[:, 1:], AX + BU,
-                            (UL[:, :-1]*MUL[:, :-1]).T,
+                            W[n].T[:, mp['LDS']['AB'].lag_state:], AXBU.T[:, :-1],
+                            UL[:, :-1].T,
                             mp['LDS']['beta'])
                     neg_pos_grad = (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
-                    pprint('B[{}] :: {} {}'.format(n, neg_pos_grad.min(), neg_pos_grad.max()))
 
                     mp['LDS']['AB'].B *=neg_pos_grad
                     mp['LDS']['AB'].B = mp['LDS']['AB'].B.clip(min=EPSILON)
                     mp['LDS']['AB'].B[~np.isfinite(mp['LDS']['AB'].B)] = EPSILON
 
                     mp['LDS']['AB'].as_ord_p()
-                    #mp['LDS']['AB'].A[0] = (
-                    #    mp['LDS']['AB'].A[0].T / mp['LDS']['AB'].A[0].sum(axis=1)).T
-                    #mp['LDS']['AB'].A[0][np.diag_indices_from(mp['LDS']['AB'].A[0])] = EPSILON
 
-                    #mp['LDS']['AB'].schur_stabilize()
-
-                    mp['LDS']['AB'].as_ord_p()
-                    pprint('A[{}] :: {}'.format(n, mp['LDS']['AB'].A))
-        pprint('\n')
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # Update the optimization model, checks for convergence.
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # Compute objective function
 
         # Cost of the observation model
-        cost_obs = calc_cost(X[mask], W.full()[mask], mp['NTF']['beta'])
+        cost_obs = calc_cost(X, W.full(), mp['NTF']['beta'])
 
         # Update the model
         model.update(cost_obs)
