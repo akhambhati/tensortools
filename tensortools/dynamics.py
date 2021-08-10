@@ -67,6 +67,7 @@ class LDS(object):
         self.rank_exog = B.shape[2]
         self.lag_exog = B.shape[0]
 
+        self.max_lag = max(B.shape[0], A.shape[0])
         self.form = 'ord_p'
 
     def as_ord_1(self):
@@ -232,7 +233,6 @@ class LDS(object):
 
                 return X
 
-
     def truncate_lagged(self, Xt, Ut):
         Xt_L = self.conv_vecs_to_lagged(Xt.T, matrix_type='state')
         Ut_L = self.conv_vecs_to_lagged(Ut.T, matrix_type='exog')
@@ -244,7 +244,6 @@ class LDS(object):
             Xt_L = Xt_L[:, int(np.abs(lag_diff)):]
 
         return Xt_L, Ut_L
-
 
     def filter_state(self, Xt, Ut):
 
