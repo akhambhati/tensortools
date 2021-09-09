@@ -177,12 +177,13 @@ def model_update(
         model,
         exog_input=None,
         fixed_axes=[],
+        update_lds_state=False,
+        update_lds_system=False,
         fit_dict={
             'method': '{}-Divergence'.format(u'\u03B2'),
             'tol': 1e-5,
             'min_iter': 1,
             'max_iter': 500,
-            'LDS_iter': 0,
             'verbose': True
         }):
     """
@@ -310,30 +311,32 @@ def model_update(
                              mp['REG']['l1_ratio']))
 
             # v) Compute gradient for the dynamical model
-            Wn_filt = None
             if (flag_lds):
-                if n == mp['LDS']['axis']:
-                    Wn_filt = mp['LDS']['AB'].filter_state(
-                            W[n], exog_input)[0][:-1]
-                    n_pad = W[n].shape[0] - Wn_filt.shape[0]
-                    Wn_filt = np.concatenate((
-                        np.ones((n_pad, mp['rank'])), Wn_filt))
+                if (n == mp['LDS']['axis']):
+
+                    Wn_filt = np.ones_like(W[n])
+                    if (update_lds_state):
+                        Wn_filt = mp['LDS']['AB'].filter_state(
+                                W[n], exog_input)[0][:-1]
+                        n_pad = W[n].shape[0] - Wn_filt.shape[0]
+                        Wn_filt = np.concatenate((
+                            np.ones((n_pad, mp['rank'])), Wn_filt))
+                        Wn_filt = Wn_filt**(mp['LDS']['anneal_wt'])
 
             # vi) Update the observational component weights
             neg_pos_grad = (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
             W[n] *= neg_pos_grad
 
-            if (n == 0):
-                if Wn_filt is not None:
-                    W[n] *= Wn_filt**(mp['LDS']['anneal_wt'])
-                W[n] = (W[n].T / np.sum(W[n], axis=1)).T
-            else:
-                W[n] = (W[n] / np.sum(W[n], axis=0))
+            if (flag_lds):
+                if (n == mp['LDS']['axis']):
+                    W[n] *= Wn_filt
+                    #W[n] = (W[n].T / np.sum(W[n], axis=1)).T
+                else:
+                    W[n] = (W[n] / np.sum(W[n], axis=0))
 
             # vii) Update the dynamical state weights
             if (flag_lds):
-                if ((n == mp['LDS']['axis']) & 
-                    (model.status['iterations'] >= model.fit_param['LDS_iter'])):
+                if ((n == mp['LDS']['axis']) & (update_lds_system)):
 
                     mp['LDS']['AB'].as_ord_1()
 
@@ -341,28 +344,30 @@ def model_update(
                             W[n], exog_input)
 
                     # Update A
-                    neg, pos = calc_div_grad(
-                            W[n].T[:, mp['LDS']['AB'].max_lag:], AXBU.T[:, :-1],
-                            WL[:, :-1].T,
-                            mp['LDS']['beta'])
+                    if mp['LDS']['lag_state'] > 0:
+                        neg, pos = calc_div_grad(
+                                W[n].T[:, mp['LDS']['AB'].max_lag:], AXBU.T[:, :-1],
+                                WL[:, :-1].T,
+                                mp['LDS']['beta'])
 
-                    neg_pos_grad = (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
+                        neg_pos_grad = (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
 
-                    mp['LDS']['AB'].A *= neg_pos_grad
+                        mp['LDS']['AB'].A *= neg_pos_grad
 
-                    mp['LDS']['AB'].A = mp['LDS']['AB'].A.clip(min=EPSILON)
-                    mp['LDS']['AB'].A[~np.isfinite(mp['LDS']['AB'].A)] = EPSILON
+                        mp['LDS']['AB'].A = mp['LDS']['AB'].A.clip(min=EPSILON)
+                        mp['LDS']['AB'].A[~np.isfinite(mp['LDS']['AB'].A)] = EPSILON
 
                     # Update B
-                    neg, pos = calc_div_grad(
-                            W[n].T[:, mp['LDS']['AB'].max_lag:], AXBU.T[:, :-1],
-                            UL[:, :-1].T,
-                            mp['LDS']['beta'])
-                    neg_pos_grad = (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
+                    if mp['LDS']['lag_exog'] > 0:
+                        neg, pos = calc_div_grad(
+                                W[n].T[:, mp['LDS']['AB'].max_lag:], AXBU.T[:, :-1],
+                                UL[:, :-1].T,
+                                mp['LDS']['beta'])
+                        neg_pos_grad = (neg / pos)**mm_gamma_func(mp['NTF']['beta'])
 
-                    mp['LDS']['AB'].B *=neg_pos_grad
-                    mp['LDS']['AB'].B = mp['LDS']['AB'].B.clip(min=EPSILON)
-                    mp['LDS']['AB'].B[~np.isfinite(mp['LDS']['AB'].B)] = EPSILON
+                        mp['LDS']['AB'].B *=neg_pos_grad
+                        mp['LDS']['AB'].B = mp['LDS']['AB'].B.clip(min=EPSILON)
+                        mp['LDS']['AB'].B[~np.isfinite(mp['LDS']['AB'].B)] = EPSILON
 
                     mp['LDS']['AB'].as_ord_p()
 
