@@ -84,6 +84,10 @@ class KTensor(object):
         self.factors[0] *= norm / self.norm()
         self.rebalance()
 
+    def force_unit_norm(self):
+        for f_i in enumerate(self.factors):
+            self.factors[f_i] /= np.linalg.norm(self.factors[f_i], axis=0)
+
     def __getitem__(self, i):
         return self.factors[i]
 
