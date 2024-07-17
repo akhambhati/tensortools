@@ -1,6 +1,6 @@
 import numpy as np
 import tensorly as tl
-
+from copy import deepcopy
 
 class KTensor(object):
     """Kruskal tensor object.
